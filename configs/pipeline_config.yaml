@@ -1,9 +1,9 @@
-task_name: "asr_error_analysis_v1"       # 任务标识，用于创建工作区子目录
+task_name: "test_v1"       # 任务标识，用于创建工作区子目录
 resume: true                             # 是否启用断点续跑
 
 paths:
   input:
-    raw_data_dir: "./datas/original"     # 包含多层子目录的txt文件根目录
+    raw_data_dir: "./datas"     # 包含多层子目录的txt文件根目录
   output:
     base_dir: "./work"                   # 所有任务的工作根目录
     models_cache: "./models"             # 预训练模型缓存目录
@@ -15,50 +15,49 @@ steps:
     output_csv: "intermediate/all_sentences.csv"   # 相对task_dir
     min_sentence_len: 3                   # 过滤过短句子
     remove_speaker_prefix: true           # 去掉行首“说话人X:”
+    split_by_punct: false
 
   01_compute_sentence_nll:
     enabled: true
     script: "scripts/01_compute_sentence_nll.py"
     input_csv: "intermediate/all_sentences.csv"
     output_csv: "intermediate/sentence_nll.csv"
-    model_name: "uer/gpt2-chinese-cluecorpussmall"
+    model_name: "models/gpt2-chinese-cluecorpussmall-main"
     batch_size: 64                        # GPU批大小
     max_seq_len: 512
     use_gpu: true
-    gpu_ids: [0, 1]                       # 使用两块GPU（数据并行）
+    # gpu_ids: [6, 7]                       # 使用两块GPU（数据并行）
+    gpu_ids: [7]                      
+
 
   02_filter_high_nll:
-    enabled: true
+    enabled: false
     script: "scripts/02_filter_high_nll.py"
     input_csv: "intermediate/sentence_nll.csv"
     output_csv: "intermediate/high_nll_sentences.csv"
     threshold_percentile: 95              # 取NLL最高的前5%
     min_sentence_len: 5                   # 进一步过滤短句
+    # absolute_threshold: 5.0     # 可选，设置绝对阈值后百分位失效
 
   03_compute_word_nll:
-    enabled: true
+    enabled: false
     script: "scripts/03_compute_word_nll.py"
     input_csv: "intermediate/high_nll_sentences.csv"
     output_csv: "outputs/word_nll_details.csv"   # 将写入带时间戳的outputs子目录
-    model_name: "uer/gpt2-chinese-cluecorpussmall"
-    batch_size: 32
+    model_name: "models/gpt2-chinese-cluecorpussmall-main"
+    batch_mode: false
     use_gpu: true
+    gpu_ids: [6, 7]
 
+steps:
   04_statistics:
     enabled: true
     script: "scripts/04_statistics.py"
-    input_word_csv: "outputs/word_nll_details.csv"
+    input_word_csv: "outputs/word_nll_details.csv"   # 实际路径需包含时间戳，建议配置为完整相对路径
     input_sentence_csv: "intermediate/sentence_nll.csv"
     output_dir: "outputs/report"
-    patterns:
-      - name: "digit_error"
-        regex: "\\d"
-        min_nll_threshold: 5.0
-      - name: "punctuation_error"
-        regex: "[，。！？；：]"
-      - name: "repetition"
-        regex: "(.)\\1{2,}"              # 三个以上重复字符
     top_k_suspicious_words: 30
+    min_occurrence: 3
     generate_plots: true
 
 logging:
