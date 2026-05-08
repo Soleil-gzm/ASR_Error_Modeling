@@ -1,0 +1,54 @@
+task_name: "test_v3"
+resume: true
+
+paths:
+  input:
+    raw_data_dir: "./datas"
+  output:
+    base_dir: "./work"
+
+steps:
+  00_preprocess:
+    enabled: true
+    script: "scripts/00_preprocess.py"
+    output_csv: "intermediate/all_sentences.csv"
+    min_sentence_len: 3
+    remove_speaker_prefix: true
+    split_by_punct: false
+
+  01_compute_sentence_nll:
+    enabled: true
+    script: "scripts/01_compute_sentence_nll.py"
+    input_csv: "intermediate/all_sentences.csv"
+    output_csv: "intermediate/sentence_nll.csv"
+    model_name: "./models/bert-base-chinese"   # 或 "uer/gpt2-chinese-cluecorpussmall"
+    batch_size: 64
+    max_seq_len: 512
+    gpu_ids: [7]          # 根据您的GPU编号调整
+
+  02_filter_high_nll:
+    enabled: true
+    script: "scripts/02_filter_high_nll.py"
+    input_csv: "intermediate/sentence_nll.csv"
+    output_csv: "intermediate/high_nll_sentences.csv"
+    threshold_percentile: 95
+    min_sentence_len: 5
+
+  03_compute_word_nll:
+    enabled: true
+    script: "scripts/03_compute_word_nll.py"
+    input_csv: "intermediate/high_nll_sentences.csv"
+    output_csv: "outputs/word_nll_details.csv"
+    model_name: "./models/bert-base-chinese"
+    max_seq_len: 512
+    gpu_ids: [7]
+
+  04_statistics:
+    enabled: true
+    script: "scripts/04_statistics.py"
+    input_word_csv: "outputs/word_nll_details.csv"
+    input_sentence_csv: "intermediate/sentence_nll.csv"
+    output_dir: "outputs/report"
+    top_k_suspicious_words: 30
+    min_occurrence: 3
+    generate_plots: true

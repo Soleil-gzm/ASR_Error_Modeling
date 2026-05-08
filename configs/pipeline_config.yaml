@@ -1,4 +1,4 @@
-task_name: "test_v1"       # 任务标识，用于创建工作区子目录
+task_name: "test_v2"       # 任务标识，用于创建工作区子目录
 resume: true                             # 是否启用断点续跑
 
 paths:
@@ -22,7 +22,7 @@ steps:
     script: "scripts/01_compute_sentence_nll.py"
     input_csv: "intermediate/all_sentences.csv"
     output_csv: "intermediate/sentence_nll.csv"
-    model_name: "models/gpt2-chinese-cluecorpussmall-main"
+    model_name: "models/bert-base-chinese"
     batch_size: 64                        # GPU批大小
     max_seq_len: 512
     use_gpu: true
@@ -31,7 +31,7 @@ steps:
 
 
   02_filter_high_nll:
-    enabled: false
+    enabled: true
     script: "scripts/02_filter_high_nll.py"
     input_csv: "intermediate/sentence_nll.csv"
     output_csv: "intermediate/high_nll_sentences.csv"
@@ -40,11 +40,11 @@ steps:
     # absolute_threshold: 5.0     # 可选，设置绝对阈值后百分位失效
 
   03_compute_word_nll:
-    enabled: false
+    enabled: true
     script: "scripts/03_compute_word_nll.py"
     input_csv: "intermediate/high_nll_sentences.csv"
     output_csv: "outputs/word_nll_details.csv"   # 将写入带时间戳的outputs子目录
-    model_name: "models/gpt2-chinese-cluecorpussmall-main"
+    model_name: "models/bert-base-chinese"
     batch_mode: false
     use_gpu: true
     gpu_ids: [6, 7]
