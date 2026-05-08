@@ -1,1 +1,11 @@
 datas/
+.vscode/
+*.pyc
+__pycache__
+.step_*_done
+*.log
+intermediate/
+outputs/
+models/
+notebooks/
+work/
