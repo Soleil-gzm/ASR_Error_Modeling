@@ -34,7 +34,7 @@ import matplotlib.pyplot as plt
 
 # 设置中文字体（使用系统中存在的字体名）
 plt.rcParams['font.sans-serif'] = ['WenQuanYi Zen Hei']
-plt.rcParams['axes.unicode_minus'] = False
+plt.rcParams['axes.unicode_minus'] = True
 
 def classify_error(token):
     if token.isdigit():
@@ -132,7 +132,7 @@ def main():
     total_tokens = len(word_df)
     avg_nll_all = word_df['nll'].mean()
     median_nll = word_df['nll'].median()
-    high_thresh = word_df['nll'].quantile(0.95)
+    high_thresh = word_df['nll'].quantile(0.80)
     high_nll_tokens = word_df[word_df['nll'] >= high_thresh]
 
     logger.info(f"总token数: {total_tokens}")
@@ -197,8 +197,8 @@ def main():
         f.write(f"- 总Token数: {total_tokens}\n")
         f.write(f"- 平均NLL: {avg_nll_all:.4f}\n")
         f.write(f"- NLL中位数: {median_nll:.4f}\n")
-        f.write(f"- NLL 95%分位数: {high_thresh:.4f}\n")
-        f.write(f"- NLL≥95分位数的Token占比: {len(high_nll_tokens)/total_tokens*100:.2f}%\n\n")
+        f.write(f"- NLL 80%分位数: {high_thresh:.4f}\n")
+        f.write(f"- NLL≥80分位数的Token占比: {len(high_nll_tokens)/total_tokens*100:.2f}%\n\n")
         f.write("## 2. 高频可疑词（Top 10）\n\n")
         f.write("| Token | 平均NLL | 出现次数 |\n")
         f.write("|-------|---------|----------|\n")

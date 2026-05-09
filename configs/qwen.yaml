@@ -1,4 +1,4 @@
-task_name: "test_Qwen"
+task_name: "test_Qwen_P80_10"
 resume: true
 
 paths:
@@ -22,17 +22,17 @@ steps:
     input_csv: "intermediate/all_sentences.csv"
     output_csv: "intermediate/sentence_nll.csv"
     model_name: "./models/Qwen2.5-1.5B-Instruct"   # 或 "uer/gpt2-chinese-cluecorpussmall"
-    batch_size: 64
+    batch_size: 16
     max_seq_len: 512
-    gpu_ids: [7]          # 根据您的GPU编号调整
+    gpu_ids: [6,7]          # 根据您的GPU编号调整
 
   02_filter_high_nll:
     enabled: true
     script: "scripts/02_filter_high_nll.py"
     input_csv: "intermediate/sentence_nll.csv"
     output_csv: "intermediate/high_nll_sentences.csv"
-    threshold_percentile: 95
-    min_sentence_len: 5
+    threshold_percentile: 80
+    min_sentence_len: 10
 
   03_compute_word_nll:
     enabled: true
@@ -41,7 +41,7 @@ steps:
     output_csv: "outputs/word_nll_details.csv"
     model_name: "./models/Qwen2.5-1.5B-Instruct"
     max_seq_len: 512
-    gpu_ids: [7]
+    gpu_ids: [6,7]
 
   04_statistics:
     enabled: true

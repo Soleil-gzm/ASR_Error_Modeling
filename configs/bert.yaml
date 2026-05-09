@@ -1,4 +1,4 @@
-task_name: "test_v3"
+task_name: "test_bert_P80_10"
 resume: true
 
 paths:
@@ -31,8 +31,8 @@ steps:
     script: "scripts/02_filter_high_nll.py"
     input_csv: "intermediate/sentence_nll.csv"
     output_csv: "intermediate/high_nll_sentences.csv"
-    threshold_percentile: 95
-    min_sentence_len: 5
+    threshold_percentile: 80
+    min_sentence_len: 10
 
   03_compute_word_nll:
     enabled: true

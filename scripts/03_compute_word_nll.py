@@ -49,7 +49,7 @@ def main():
         logger.error(f"输入文件不存在: {input_csv}")
         sys.exit(1)
 
-    df = pd.read_csv(input_csv)
+    df = pd.read_csv(input_csv, encoding='utf-8')
     sentences = df['sentence'].tolist()
     sentence_ids = df['id'].tolist()
     logger.info(f"共加载 {len(sentences)} 条高NLL句子")
@@ -65,6 +65,9 @@ def main():
         for idx, (token, nll) in enumerate(zip(tokens, nlls)):
             if pd.isna(nll):
                 continue
+            # 如果 token 是 bytes，尝试用 utf-8 解码
+            if isinstance(token, bytes):
+                token = token.decode('utf-8', errors='replace')
             all_records.append({
                 "sentence_id": sid,
                 "token_index": idx,

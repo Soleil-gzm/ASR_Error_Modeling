@@ -6,6 +6,12 @@
 
 import re
 from pathlib import Path
+import chardet
+
+def detect_encoding(file_path):
+    with open(file_path, 'rb') as f:
+        raw = f.read(10000)
+    return chardet.detect(raw)['encoding']   
 
 def remove_speaker_prefix(text: str) -> str:
     """
@@ -41,6 +47,21 @@ def extract_sentences_from_line(line: str, remove_prefix: bool = True, split_by_
     else:
         sentences = [line]
     return sentences
+
+    # encoding = detect_encoding(file_path)
+    # with open(file_path, 'r', encoding=encoding, errors='replace') as f:
+    #     if remove_prefix:
+    #         line = remove_speaker_prefix(line)
+    #     line = line.strip()
+    #     if not line:
+    #         return []
+    #     if split_by_punct:
+    #         # 按句号、问号、感叹号、分号分割
+    #         parts = re.split(r'[。？!；]', line)
+    #         sentences = [p.strip() for p in parts if p.strip()]
+    #     else:
+    #         sentences = [line]
+    # return sentences
 
 def extract_sentences_from_file(file_path: str, remove_prefix: bool = True,
                                 split_by_punct: bool = False, min_len: int = 3) -> list:

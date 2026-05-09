@@ -33,8 +33,8 @@ def main():
         output_csv = task_dir / output_csv
     output_csv.parent.mkdir(parents=True, exist_ok=True)
 
-    threshold_percentile = step_cfg.get('threshold_percentile', 95)
-    min_sentence_len = step_cfg.get('min_sentence_len', 5)
+    threshold_percentile = step_cfg.get('threshold_percentile', 80)
+    min_sentence_len = step_cfg.get('min_sentence_len', 10)
     absolute_threshold = step_cfg.get('absolute_threshold', None)
 
     log_dir = task_dir / "logs"
