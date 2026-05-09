@@ -109,9 +109,10 @@ python scripts/aggregate_to_words.py \
     --output_csv work/test_v2/outputs/word_level_nll.csv \
     --log_dir work/test_v2/logs
 
+# 命令行运行案例
 python scripts/aggregate_to_words.py \
     --input_csv work/test_gpt2_P80_10_datas/outputs/word_nll_details.csv \
     --output_csv work/test_gpt2_P80_10_datas/outputs/word_level_nll.csv \
-    --log_dir work/test_gpt2_P80_10_datas/logs/aggregate_to_words.log
+    --log_dir work/test_gpt2_P80_10_datas/logs
 
 '''
