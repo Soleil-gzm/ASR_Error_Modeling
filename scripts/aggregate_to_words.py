@@ -111,8 +111,8 @@ python scripts/aggregate_to_words.py \
 
 # 命令行运行案例
 python scripts/aggregate_to_words.py \
-    --input_csv work/test_gpt2_P80_10_datas/outputs/word_nll_details.csv \
-    --output_csv work/test_gpt2_P80_10_datas/outputs/word_level_nll.csv \
-    --log_dir work/test_gpt2_P80_10_datas/logs
+    --input_csv work/test_Qwen_P80_10/outputs/word_nll_details.csv \
+    --output_csv work/test_Qwen_P80_10/outputs/word_level_nll.csv \
+    --log_dir work/test_Qwen_P80_10/logs
 
 '''
