@@ -54,7 +54,13 @@ def main():
     sentence_ids = df['id'].tolist()
     logger.info(f"共加载 {len(sentences)} 条高NLL句子")
 
-    model, tokenizer, device = load_model_and_tokenizer(model_name, device_ids=gpu_ids)
+    # model, tokenizer, device = load_model_and_tokenizer(model_name, device_ids=gpu_ids)
+    # 加载模型（增加 trust_remote_code=True）
+    model, tokenizer, device = load_model_and_tokenizer(
+        model_name,
+        device_ids=gpu_ids,
+        trust_remote_code=True   # 关键：Qwen 需要这个参数
+    )
     model.eval()
 
     all_records = []
@@ -78,7 +84,7 @@ def main():
 
     logger.info(f"共产生 {len(all_records)} 条 token 级记录")
     result_df = pd.DataFrame(all_records)
-    result_df.to_csv(output_csv, index=False, encoding='utf-8')
+    result_df.to_csv(output_csv, index=False, encoding='utf-8-sig')
     logger.info(f"已保存至 {output_csv}")
 
     # 元数据

@@ -1,9 +1,9 @@
-task_name: "test_gpt2_P80_10_original"
+task_name: "test_gpt2_P80_10_datas"
 resume: true
 
 paths:
   input:
-    raw_data_dir: "./datas_original/202401"
+    raw_data_dir: "./datas"
   output:
     base_dir: "./work"
 

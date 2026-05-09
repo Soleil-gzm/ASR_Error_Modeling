@@ -1,11 +1,4 @@
 # scripts/utils/nll_calculator.py
-"""
-NLL计算模块
-提供句子级NLL批处理和词级NLL的单句计算
-"""
-
-# scripts/utils/nll_calculator.py (修正版)
-
 import torch
 from torch.utils.data import DataLoader, Dataset
 from tqdm import tqdm
@@ -21,15 +14,13 @@ class SentenceDataset(Dataset):
 
     def __getitem__(self, idx):
         text = self.sentences[idx]
-        # 关键修复：添加 padding='max_length'，使所有样本长度相同
         enc = self.tokenizer(
             text,
             max_length=self.max_length,
             truncation=True,
-            padding='max_length',          # <--- 添加此参数
+            padding='max_length',
             return_tensors='pt'
         )
-        # 返回形状为 (max_length,) 的张量
         return enc['input_ids'][0], enc['attention_mask'][0]
 
 def compute_sentence_nll_batch(model, tokenizer, sentences, batch_size=32,
@@ -49,17 +40,14 @@ def compute_sentence_nll_batch(model, tokenizer, sentences, batch_size=32,
             loss_fct = torch.nn.CrossEntropyLoss(reduction='none')
             token_nll = loss_fct(shift_logits.view(-1, shift_logits.size(-1)), shift_labels.view(-1))
             token_nll = token_nll.view(shift_labels.size())
-            # 注意：由于 padding 的存在，attention_mask 的第 1 位后仍然有 padding 标记（值为0）
-            mask = attention_mask[:, 1:].contiguous()   # 移除了第一个 [CLS] 或 BOS 吗？实际上 attention_mask 与 input_ids 对齐，第一个 token 是 [CLS]/[BOS] 也需要预测？通常我们忽略它，但这里 mask 对应 shift_labels 的位置。
-            # 更严谨的做法：确保 mask 长度与 token_nll 一致
+            mask = attention_mask[:, 1:].contiguous()
             seq_nll = (token_nll * mask).sum(dim=1) / mask.sum(dim=1)
             all_nll.extend(seq_nll.cpu().tolist())
     return all_nll
 
 def compute_word_nll(model, tokenizer, sentence, device='cuda', max_length=512):
     """
-    单句逐token的负对数似然
-    添加 truncation 避免序列过长
+    单句逐token的负对数似然，支持 Qwen、GPT-2 等所有模型，中文输出完全正常
     """
     inputs = tokenizer(
         sentence,
@@ -80,10 +68,20 @@ def compute_word_nll(model, tokenizer, sentence, device='cuda', max_length=512):
     token_nll = loss_fct(shift_logits.view(-1, shift_logits.size(-1)), shift_labels.view(-1))
     token_nll = token_nll.view(shift_labels.size())
     
-    tokens = tokenizer.convert_ids_to_tokens(input_ids[0])
+    # 关键修复：使用 decode 获得原始字符串（而不是 convert_ids_to_tokens）
+    token_ids = input_ids[0].tolist()
+    tokens = []
+    for idx, tid in enumerate(token_ids):
+        # 跳过特殊 token（如 <s>, </s>）可以根据需要保留，这里全部转换
+        token_str = tokenizer.decode([tid], skip_special_tokens=False).strip()
+        # 如果解码结果为空或仅为空格，尝试使用 convert_ids_to_tokens 作为后备
+        if not token_str:
+            token_str = tokenizer.convert_ids_to_tokens(tid)
+            if isinstance(token_str, bytes):
+                token_str = token_str.decode('utf-8', errors='replace')
+        tokens.append(token_str)
+    
     nll_list = [float('nan')] * len(tokens)
     for i in range(1, len(tokens)):
         nll_list[i] = token_nll[0, i-1].item()
     return tokens, nll_list
-
-
