@@ -13,7 +13,7 @@ def load_model_and_tokenizer(model_name: str, cache_dir: str = None, device_ids:
     Args:
         model_name: HuggingFace 模型名称或本地路径
         cache_dir: 模型缓存目录（可选）
-        device_ids: GPU ID 列表，如 [0,1] 或 [6,7]
+        device_ids: GPU ID 列表，如 [6,7]
         trust_remote_code: 是否允许执行自定义模型代码（Qwen、ChatGLM 等需要设为 True）
     Returns:
         model, tokenizer, device

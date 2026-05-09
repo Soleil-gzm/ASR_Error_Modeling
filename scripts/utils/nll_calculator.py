@@ -34,10 +34,10 @@ def compute_sentence_nll_batch(model, tokenizer, sentences, batch_size=32,
             input_ids = input_ids.to(device)
             attention_mask = attention_mask.to(device)
             outputs = model(input_ids, attention_mask=attention_mask, labels=input_ids)
-            logits = outputs.logits
+            logits = outputs.logits     # 获取模型输出的 logits
             shift_logits = logits[:, :-1, :].contiguous()
             shift_labels = input_ids[:, 1:].contiguous()
-            loss_fct = torch.nn.CrossEntropyLoss(reduction='none')
+            loss_fct = torch.nn.CrossEntropyLoss(reduction='none')     #损失函数内部会自动对 logits 做 softmax，然后计算负对数似然（NLL）
             token_nll = loss_fct(shift_logits.view(-1, shift_logits.size(-1)), shift_labels.view(-1))
             token_nll = token_nll.view(shift_labels.size())
             mask = attention_mask[:, 1:].contiguous()
