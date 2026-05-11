@@ -250,7 +250,14 @@ def main():
             df = df[['sentence_id', 'word', 'avg_nll', 'sentence']]
             # 确保 word 列是字符串（消除可能的浮点数）
             df['word'] = df['word'].astype(str)
-    logger.info(f"分析数据共有 {len(df)} 条词级记录")
+            
+        # 保存聚合后的词级数据（方便后续使用）
+        agg_suffix = f"_sample_{int(sample_ratio*100)}" if sample_ratio < 1.0 else ""
+        agg_filename = f"word_level_aggregated{agg_suffix}.csv"
+        aggregated_csv = output_dir / agg_filename
+        df.to_csv(aggregated_csv, index=False, encoding='utf-8')
+        logger.info(f"聚合后的词级数据已保存至 {aggregated_csv}")
+        logger.info(f"分析数据共有 {len(df)} 条词级记录")
 
     if len(df) == 0:
         logger.error("没有有效词级记录，无法生成报告")
