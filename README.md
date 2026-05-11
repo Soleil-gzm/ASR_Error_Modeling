@@ -46,3 +46,7 @@ asr_error_analysis/
 │               ├── report/             # 图表和报告
 │               └── summary_report.pdf
 └── tests/                              # 单元测试
+
+# 下一步
+
+根据突然升高的nll值，找到前面的词，建立匹配，得到噪音替换的词表，建立针对当前语言模型的噪声添加词表

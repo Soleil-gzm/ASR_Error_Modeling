@@ -56,10 +56,16 @@ def main():
     logger.info(f"模型加载完成，设备: {device}")
 
     # 计算NLL
+    # nll_scores = compute_sentence_nll_batch(
+    #     model, tokenizer, sentences,
+    #     batch_size=batch_size, max_length=max_seq_len, device=device,
+    #     desc="计算句子NLL"
+    # )
     nll_scores = compute_sentence_nll_batch(
         model, tokenizer, sentences,
         batch_size=batch_size, max_length=max_seq_len, device=device,
-        desc="计算句子NLL"
+        desc="计算句子NLL",
+        num_workers=step_cfg.get('num_workers', 4)      # 新增参数，会启动多个子进程同时处理 __getitem__，显著减少 CPU 预处理时间
     )
 
     df['nll'] = nll_scores

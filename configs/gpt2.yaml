@@ -25,6 +25,7 @@ steps:
     batch_size: 128
     max_seq_len: 256
     gpu_ids: [6,7]          # 根据您的GPU编号调整
+    num_workers: 4
 
   02_filter_high_nll:
     enabled: true

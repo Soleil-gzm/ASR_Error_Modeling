@@ -24,9 +24,11 @@ class SentenceDataset(Dataset):
         return enc['input_ids'][0], enc['attention_mask'][0]
 
 def compute_sentence_nll_batch(model, tokenizer, sentences, batch_size=32,
-                               max_length=512, device='cuda', desc="Computing NLL"):
+                               max_length=512, device='cuda', desc="Computing NLL",
+                               num_workers=4):   # 新增参数，会启动多个子进程同时处理 __getitem__，显著减少 CPU 预处理时间
     dataset = SentenceDataset(sentences, tokenizer, max_length)
-    dataloader = DataLoader(dataset, batch_size=batch_size, shuffle=False)
+    dataloader = DataLoader(dataset, batch_size=batch_size, shuffle=False,
+                            num_workers=num_workers, pin_memory=True)   # pin_memory 加速 GPU 传输
     model.eval()
     all_nll = []
     with torch.no_grad():
