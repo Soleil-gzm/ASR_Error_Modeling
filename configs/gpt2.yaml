@@ -1,9 +1,9 @@
-task_name: "test_gpt2_P80_10_datas"
+task_name: "test_gpt2_original"
 resume: true
 
 paths:
   input:
-    raw_data_dir: "./datas"
+    raw_data_dir: "./datas_original"
   output:
     base_dir: "./work"
 
@@ -22,9 +22,9 @@ steps:
     input_csv: "intermediate/all_sentences.csv"
     output_csv: "intermediate/sentence_nll.csv"
     model_name: "./models/gpt2-chinese-cluecorpussmall"   # 或 "uer/gpt2-chinese-cluecorpussmall"
-    batch_size: 64
-    max_seq_len: 512
-    gpu_ids: [7]          # 根据您的GPU编号调整
+    batch_size: 128
+    max_seq_len: 256
+    gpu_ids: [6,7]          # 根据您的GPU编号调整
 
   02_filter_high_nll:
     enabled: true
