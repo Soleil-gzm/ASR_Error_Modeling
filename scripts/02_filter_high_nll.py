@@ -144,7 +144,13 @@ def main():
     # 更新元数据（历史追加）
     update_metadata_timing(metadata_path, "02_filter_high_nll", current_timing, latest_info)
 
-    # 同时更新原 metadata 中的其他字段（兼容下游步骤读取）
+    # 重新加载元数据（因为 update_metadata_timing 已经写入，但我们需要在内存中添加其他字段）
+    with open(metadata_path, 'r') as f:
+        metadata = json.load(f)
+
+    # 确保 '02_filter_high_nll' 键存在
+    if '02_filter_high_nll' not in metadata:
+        metadata['02_filter_high_nll'] = {}
     metadata['02_filter_high_nll'].update({
         "input_csv": str(input_csv),
         "output_csv": str(output_csv),
@@ -157,6 +163,7 @@ def main():
         "sample_ratio": sample_ratio,
         "timestamp": datetime.now().isoformat()
     })
+
     with open(metadata_path, 'w') as f:
         json.dump(metadata, f, indent=2)
 
