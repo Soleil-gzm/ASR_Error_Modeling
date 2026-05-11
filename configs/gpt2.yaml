@@ -44,7 +44,8 @@ steps:
     output_csv: "outputs/word_nll_details.csv"
     model_name: "./models/gpt2-chinese-cluecorpussmall"
     max_seq_len: 512
-    gpu_ids: [7]
+    batch_size: 64
+    gpu_ids: [7]          # 只使用一张卡
 
   04_statistics:
     enabled: true
