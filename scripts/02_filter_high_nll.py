@@ -1,16 +1,20 @@
 #!/usr/bin/env python3
 """
-步骤02：筛选高NLL句子
+步骤02：筛选高NLL句子（带计时和历史记录）
 完全依赖元数据确定输入文件路径，自动适配采样
 """
 
 import sys
 import json
 import argparse
+import time
 from pathlib import Path
 from datetime import datetime
 import pandas as pd
+
+sys.path.insert(0, str(Path(__file__).parent.parent))
 from scripts.utils import setup_logger
+from scripts.utils.timer import TimedBlock, update_metadata_timing
 
 def main():
     parser = argparse.ArgumentParser()
@@ -19,12 +23,12 @@ def main():
 
     config = json.loads(args.config_json)
     task_name = config['task_name']
-    base_dir = Path(config['paths']['output']['base_dir'])   # 例如 work
-    task_dir = base_dir / task_name                          # 例如 work/test_gpt2_sample_10
+    base_dir = Path(config['paths']['output']['base_dir'])
+    task_dir = base_dir / task_name
 
     step_cfg = config['steps']['02_filter_high_nll']
 
-    # 日志
+    # 日志设置
     log_dir = task_dir / "logs"
     logger = setup_logger(log_dir, "02_filter_high_nll")
 
@@ -43,7 +47,6 @@ def main():
 
     # 步骤01的输出路径（元数据中存的是相对于项目根目录的路径）
     input_csv_rel = Path(metadata['01_compute_sentence_nll']['output_csv'])
-    # 项目根目录是 base_dir 的父目录（因为 base_dir = "work"，项目根即父目录）
     project_root = base_dir.parent
     if input_csv_rel.is_absolute():
         input_csv = input_csv_rel
@@ -76,28 +79,73 @@ def main():
         logger.error(f"输入文件不存在: {input_csv}")
         sys.exit(1)
 
-    df = pd.read_csv(input_csv)
+    total_start = time.perf_counter()
+    timing = {}
+
+    # 1. 读取CSV
+    with TimedBlock("read_csv", timing):
+        df = pd.read_csv(input_csv)
     original_len = len(df)
     logger.info(f"加载 {original_len} 条句子")
 
-    if min_sentence_len > 0:
-        df = df[df['sentence'].str.len() >= min_sentence_len]
-        logger.info(f"过滤短句后剩余 {len(df)} 条")
+    # 2. 过滤短句
+    with TimedBlock("filter_short", timing):
+        if min_sentence_len > 0:
+            df = df[df['sentence'].str.len() >= min_sentence_len]
+            logger.info(f"过滤短句后剩余 {len(df)} 条")
 
-    if absolute_threshold is not None:
-        threshold = absolute_threshold
-        logger.info(f"使用绝对阈值: {threshold}")
-        high_nll_df = df[df['nll'] >= threshold]
-    else:
-        threshold = df['nll'].quantile(threshold_percentile / 100.0)
-        logger.info(f"百分位 {threshold_percentile}% → 阈值 {threshold:.4f}")
-        high_nll_df = df[df['nll'] >= threshold]
-
+    # 3. 根据阈值筛选高NLL句子
+    with TimedBlock("filter_nll_threshold", timing):
+        if absolute_threshold is not None:
+            threshold = absolute_threshold
+            logger.info(f"使用绝对阈值: {threshold}")
+            high_nll_df = df[df['nll'] >= threshold]
+        else:
+            threshold = df['nll'].quantile(threshold_percentile / 100.0)
+            logger.info(f"百分位 {threshold_percentile}% → 阈值 {threshold:.4f}")
+            high_nll_df = df[df['nll'] >= threshold]
     logger.info(f"筛选出 {len(high_nll_df)} 条高NLL句子 ({len(high_nll_df)/len(df)*100:.2f}%)")
-    high_nll_df.to_csv(output_csv, index=False, encoding='utf-8')
 
-    # 更新元数据
-    metadata['02_filter_high_nll'] = {
+    # 4. 写入CSV
+    with TimedBlock("write_csv", timing):
+        high_nll_df.to_csv(output_csv, index=False, encoding='utf-8')
+
+    timing["total_sec"] = time.perf_counter() - total_start
+    logger.info(f"总耗时: {timing['total_sec']:.2f}秒")
+
+    # 构建当前运行的计时记录
+    current_timing = {
+        "timestamp": datetime.now().isoformat(),
+        "read_csv_sec": timing["read_csv"],
+        "filter_short_sec": timing["filter_short"],
+        "filter_nll_threshold_sec": timing["filter_nll_threshold"],
+        "write_csv_sec": timing["write_csv"],
+        "total_sec": timing["total_sec"],
+        "num_input_sentences": original_len,
+        "num_after_short_filter": len(df),
+        "num_filtered": len(high_nll_df),
+        "threshold_percentile": threshold_percentile,
+        "absolute_threshold": absolute_threshold,
+        "min_sentence_len": min_sentence_len
+    }
+
+    # 最新一次运行的关键信息
+    latest_info = {
+        "input_csv": str(input_csv),
+        "output_csv": str(output_csv),
+        "threshold_percentile": threshold_percentile,
+        "absolute_threshold": absolute_threshold,
+        "min_sentence_len": min_sentence_len,
+        "num_filtered": len(high_nll_df),
+        "sample_ratio": sample_ratio,
+        "timestamp": datetime.now().isoformat()
+    }
+
+    # 更新元数据（历史追加）
+    update_metadata_timing(metadata_path, "02_filter_high_nll", current_timing, latest_info)
+
+    # 同时更新原 metadata 中的其他字段（兼容下游步骤读取）
+    metadata['02_filter_high_nll'].update({
         "input_csv": str(input_csv),
         "output_csv": str(output_csv),
         "threshold_percentile": threshold_percentile,
@@ -108,7 +156,7 @@ def main():
         "threshold_value": float(threshold),
         "sample_ratio": sample_ratio,
         "timestamp": datetime.now().isoformat()
-    }
+    })
     with open(metadata_path, 'w') as f:
         json.dump(metadata, f, indent=2)
 
