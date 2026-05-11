@@ -78,8 +78,18 @@ def run_step(step_key, step_config, task_dir, global_config, logger):
     # 将完整配置通过 --config_json 传递
     cmd = [sys.executable, script_path, '--config_json', json.dumps(global_config)]
 
-    # 可选：为某些步骤添加额外参数（但推荐完全依赖config_json，保持简单）
-    result = subprocess.run(cmd, capture_output=True, text=True)
+    # 设置环境变量，将项目根目录加入 PYTHONPATH
+    env = os.environ.copy()
+    project_root = Path(__file__).parent  # run_pipeline.py 所在目录（项目根）
+    pythonpath = env.get('PYTHONPATH', '')
+    if pythonpath:
+        env['PYTHONPATH'] = f"{project_root}:{pythonpath}"
+    else:
+        env['PYTHONPATH'] = str(project_root)
+
+    # 执行
+    result = subprocess.run(cmd, capture_output=True, text=True, env=env)
+
     if result.returncode != 0:
         logger.error(f"步骤 {step_key} 执行失败，返回码 {result.returncode}")
         error_log = task_dir / "logs" / f"{step_key}_error.log"
