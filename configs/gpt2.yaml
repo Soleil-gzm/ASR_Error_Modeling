@@ -1,4 +1,4 @@
-task_name: "test_gpt2_sample_10"
+task_name: "test_gpt2_sample_10_pt"
 resume: true
 
 paths:
