@@ -1,11 +1,12 @@
 #!/usr/bin/env python3
 """
-步骤01：计算句子级平均NLL（GPU批处理） - 支持缓存 tokenization 结果
+步骤01：计算句子级平均NLL（GPU批处理） - 支持缓存 tokenization 结果，计时历史记录
 """
 
 import sys
 import json
 import argparse
+import time
 import torch
 import pandas as pd
 import numpy as np
@@ -18,11 +19,12 @@ sys.path.insert(0, str(Path(__file__).parent.parent))
 from scripts.utils import setup_logger, load_model_and_tokenizer
 
 def compute_nll_from_tensors(model, input_ids, attention_mask, batch_size, device, desc="推理"):
-    """从预计算的张量直接计算句子级平均 NLL"""
+    """从预计算的张量直接计算句子级平均 NLL，返回 NLL 列表和推理耗时"""
     dataset = TensorDataset(input_ids, attention_mask)
     dataloader = DataLoader(dataset, batch_size=batch_size, shuffle=False, pin_memory=True, num_workers=0)
     model.eval()
     all_nll = []
+    start_time = time.perf_counter()
     with torch.no_grad():
         for batch_input_ids, batch_mask in tqdm(dataloader, desc=desc):
             batch_input_ids = batch_input_ids.to(device)
@@ -37,7 +39,8 @@ def compute_nll_from_tensors(model, input_ids, attention_mask, batch_size, devic
             mask = batch_mask[:, 1:].contiguous()
             seq_nll = (token_nll * mask).sum(dim=1) / mask.sum(dim=1)
             all_nll.extend(seq_nll.cpu().tolist())
-    return all_nll
+    inference_time = time.perf_counter() - start_time
+    return all_nll, inference_time
 
 def save_chunk_cache(cache_dir, chunk_idx, input_ids, attention_mask, ids):
     cache_dir.mkdir(parents=True, exist_ok=True)
@@ -96,28 +99,35 @@ def main():
         logger.error(f"输入文件不存在: {input_csv}")
         sys.exit(1)
 
-    # 先加载模型（无论是否使用缓存，都需要模型）
+    total_start = time.perf_counter()
+
+    # 1. 模型加载
+    model_load_start = time.perf_counter()
     logger.info("加载模型...")
     model, tokenizer, device = load_model_and_tokenizer(model_name, device_ids=gpu_ids)
-    logger.info(f"模型加载完成，设备: {device}")
+    model_load_time = time.perf_counter() - model_load_start
+    logger.info(f"模型加载完成，设备: {device}，耗时: {model_load_time:.2f}s")
 
-    # 构建缓存目录
+    # 缓存目录
     cache_dir = task_dir / "intermediate" / f"tokenized_cache_{model_name.replace('/', '_')}_{max_seq_len}"
     full_cache_exists = exists_cache(cache_dir)
 
+    data_prep_start = time.perf_counter()
+
     if full_cache_exists:
         logger.info("发现全量缓存，将直接使用缓存（跳过tokenization）")
-        # 加载所有分块
         all_input_ids = []
         all_attention_masks = []
         all_ids = []
         chunk_files = sorted(cache_dir.glob("chunk_*.pt"))
+        load_cache_start = time.perf_counter()
         for ch_file in tqdm(chunk_files, desc="加载缓存分块"):
             idx = int(ch_file.stem.split('_')[1])
             input_ids, attn_mask, ids = load_chunk_cache(cache_dir, idx)
             all_input_ids.append(input_ids)
             all_attention_masks.append(attn_mask)
             all_ids.extend(ids)
+        load_cache_time = time.perf_counter() - load_cache_start
         input_ids_all = torch.cat(all_input_ids, dim=0)
         attention_mask_all = torch.cat(all_attention_masks, dim=0)
         total = input_ids_all.size(0)
@@ -133,23 +143,17 @@ def main():
         else:
             sampled_ids = all_ids
             logger.info(f"使用全量数据: {total} 条句子")
-
-        # 计算 NLL
-        nll_scores = compute_nll_from_tensors(model, input_ids_all, attention_mask_all, batch_size, device, desc="计算句子NLL")
-
-        # 重建 DataFrame（需要句子内容）
-        full_df = pd.read_csv(input_csv)
-        id_to_sent = dict(zip(full_df['id'], full_df['sentence']))
-        df = pd.DataFrame({'id': sampled_ids, 'sentence': [id_to_sent[i] for i in sampled_ids], 'nll': nll_scores})
-
+        data_prep_time = time.perf_counter() - data_prep_start
+        logger.info(f"缓存加载+采样耗时: {data_prep_time:.2f}s (其中加载缓存 {load_cache_time:.2f}s)")
+        tokenize_time = None
     else:
         logger.info("未发现缓存，将进行tokenization并创建缓存")
-        # 分块读取CSV，进行 tokenization 并保存缓存
         csv_iter = pd.read_csv(input_csv, chunksize=chunk_size)
         all_input_ids = []
         all_attention_masks = []
         all_ids = []
         chunk_idx = 0
+        tokenize_start = time.perf_counter()
         for chunk in tqdm(csv_iter, desc="Tokenizing and caching"):
             sentences = chunk['sentence'].tolist()
             ids = chunk['id'].tolist()
@@ -162,6 +166,8 @@ def main():
             all_attention_masks.append(attention_mask)
             all_ids.extend(ids)
             chunk_idx += 1
+        tokenize_time = time.perf_counter() - tokenize_start
+        logger.info(f"Tokenization 耗时: {tokenize_time:.2f}s")
 
         input_ids_all = torch.cat(all_input_ids, dim=0)
         attention_mask_all = torch.cat(all_attention_masks, dim=0)
@@ -178,28 +184,60 @@ def main():
             logger.info(f"采样后句子数: {len(sampled_ids)}")
         else:
             sampled_ids = all_ids
+        data_prep_time = time.perf_counter() - data_prep_start
+        logger.info(f"数据准备总耗时: {data_prep_time:.2f}s (其中tokenization {tokenize_time:.2f}s)")
 
-        # 计算 NLL
-        nll_scores = compute_nll_from_tensors(model, input_ids_all, attention_mask_all, batch_size, device, desc="计算句子NLL")
+    # 2. 推理
+    inference_start = time.perf_counter()
+    nll_scores, inference_time = compute_nll_from_tensors(
+        model, input_ids_all, attention_mask_all, batch_size, device, desc="计算句子NLL"
+    )
+    logger.info(f"推理耗时: {inference_time:.2f}s, 平均每秒处理 {len(sampled_ids)/inference_time:.2f} 条句子")
 
-        full_df = pd.read_csv(input_csv)
-        id_to_sent = dict(zip(full_df['id'], full_df['sentence']))
-        df = pd.DataFrame({'id': sampled_ids, 'sentence': [id_to_sent[i] for i in sampled_ids], 'nll': nll_scores})
+    # 3. 构建结果 DataFrame
+    full_df = pd.read_csv(input_csv)
+    id_to_sent = dict(zip(full_df['id'], full_df['sentence']))
+    df = pd.DataFrame({'id': sampled_ids, 'sentence': [id_to_sent[i] for i in sampled_ids], 'nll': nll_scores})
 
-    # 保存最终 CSV
     if sample_ratio < 1.0:
         stem = output_csv.stem
         output_csv = output_csv.with_name(f"{stem}_sample_{int(sample_ratio*100)}{output_csv.suffix}")
+    save_start = time.perf_counter()
     df.to_csv(output_csv, index=False, encoding='utf-8')
-    logger.info(f"结果已保存至 {output_csv}")
+    save_time = time.perf_counter() - save_start
+    logger.info(f"结果保存至 {output_csv}，耗时 {save_time:.2f}s")
 
-    # 更新元数据
+    total_time = time.perf_counter() - total_start
+    logger.info(f"总耗时: {total_time:.2f}s")
+
+    # 准备计时信息
+    current_timing = {
+        "timestamp": datetime.now().isoformat(),
+        "load_model_sec": model_load_time,
+        "data_preparation_sec": data_prep_time,
+        "inference_sec": inference_time,
+        "save_output_sec": save_time,
+        "total_sec": total_time,
+        "throughput_sentences_per_sec": len(sampled_ids) / inference_time if inference_time > 0 else 0,
+        "tokenization_sec": tokenize_time if tokenize_time is not None else None
+    }
+
+    # 更新元数据（历史追加模式）
     metadata_path = task_dir / "run_metadata.json"
     metadata = {}
     if metadata_path.exists():
         with open(metadata_path, 'r') as f:
             metadata = json.load(f)
-    metadata['01_compute_sentence_nll'] = {
+
+    # 确保结构存在
+    if "01_compute_sentence_nll" not in metadata:
+        metadata["01_compute_sentence_nll"] = {}
+    if "timing_history" not in metadata["01_compute_sentence_nll"]:
+        metadata["01_compute_sentence_nll"]["timing_history"] = []
+    metadata["01_compute_sentence_nll"]["timing_history"].append(current_timing)
+
+    # 保存最新运行的关键配置（可选）
+    metadata["01_compute_sentence_nll"]["latest"] = {
         "input_csv": str(input_csv),
         "output_csv": str(output_csv),
         "model_name": model_name,
@@ -210,9 +248,10 @@ def main():
         "sample_ratio": sample_ratio,
         "sample_seed": sample_seed,
         "num_sentences": len(df),
-        "timestamp": datetime.now().isoformat(),
-        "used_cache": full_cache_exists
+        "used_cache": full_cache_exists,
+        "timestamp": datetime.now().isoformat()
     }
+
     with open(metadata_path, 'w') as f:
         json.dump(metadata, f, indent=2)
 

@@ -1,4 +1,4 @@
-task_name: "test_gpt2_sample_10_pt"
+task_name: "test_Qwen_sample_10_pt"
 resume: true
 
 paths:
@@ -21,8 +21,8 @@ steps:
     script: "scripts/01_compute_sentence_nll.py"
     input_csv: "intermediate/all_sentences.csv"
     output_csv: "intermediate/sentence_nll.csv"
-    model_name: "./models/gpt2-chinese-cluecorpussmall"   # 或 "uer/gpt2-chinese-cluecorpussmall"
-    batch_size: 256
+    model_name: "./models/Qwen2.5-1.5B-Instruct"   
+    batch_size: 32
     max_seq_len: 256
     gpu_ids: [7]          # 根据您的GPU编号调整
     num_workers: 4
@@ -42,9 +42,9 @@ steps:
     script: "scripts/03_compute_word_nll.py"
     input_csv: "intermediate/high_nll_sentences.csv"
     output_csv: "outputs/word_nll_details.csv"
-    model_name: "./models/gpt2-chinese-cluecorpussmall"
+    model_name: "./models/Qwen2.5-1.5B-Instruct"
     max_seq_len: 256
-    batch_size: 256
+    batch_size: 32
     gpu_ids: [7]          # 只使用一张卡
 
   04_statistics:
