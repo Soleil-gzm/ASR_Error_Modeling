@@ -23,6 +23,39 @@ sys.path.insert(0, str(Path(__file__).parent.parent))
 from scripts.utils import setup_logger
 from scripts.utils.timer import TimedBlock, update_metadata_timing
 
+import matplotlib
+matplotlib.use('Agg')
+import matplotlib.font_manager as fm
+
+# --- 中文字体配置（稳健版）---
+# 方法1：尝试直接设置已知中文字体名（优先）
+try:
+    plt.rcParams['font.sans-serif'] = ['WenQuanYi Zen Hei', 'Noto Sans CJK SC', 'SimHei']
+    plt.rcParams['axes.unicode_minus'] = False
+    # 测试字体是否可用
+    fig, ax = plt.subplots()
+    ax.set_title('测试')
+    plt.close(fig)
+except:
+    # 方法2：手动添加字体文件路径
+    font_paths = [
+        '/usr/share/fonts/truetype/wqy/wqy-zenhei.ttc',
+        '/usr/share/fonts/opentype/noto/NotoSansCJK-Regular.ttc',
+        '/System/Library/Fonts/PingFang.ttc'  # macOS
+    ]
+    added = False
+    for path in font_paths:
+        if fm.findfont(path, fallback_to_default=False):
+            fm.fontManager.addfont(path)
+            font_name = fm.FontProperties(fname=path).get_name()
+            plt.rcParams['font.sans-serif'] = [font_name]
+            added = True
+            break
+    if not added:
+        print("警告：未找到中文字体，图表将无法显示中文")
+    plt.rcParams['axes.unicode_minus'] = False
+# --- 配置结束 ---
+
 # ------------------------------------------------------------
 # 辅助函数
 # ------------------------------------------------------------
