@@ -27,7 +27,10 @@ steps:
     max_seq_len: 512
     use_gpu: true
     # gpu_ids: [6, 7]                       # 使用两块GPU（数据并行）
-    gpu_ids: [7]                      
+    gpu_ids: [7]    
+    num_workers: 4
+    sample_ratio: 0.1      # 采样10%的数据
+    sample_seed: 42        # 随机种子，保证每次采样一致                  
 
 
   02_filter_high_nll:

@@ -1,40 +1,23 @@
 #!/usr/bin/env python3
 """
 步骤04：统计分析，生成报告
+支持从元数据动态获取步骤03的输出，自动适配采样比例，报告输出也置于带采样比例的子目录
 """
 
-#!/usr/bin/env python3
 import sys
-from pathlib import Path
-# 将项目根目录加入 sys.path
-sys.path.insert(0, str(Path(__file__).parent.parent))
-
 import json
 import argparse
+from pathlib import Path
 from datetime import datetime
 from collections import defaultdict
 
 import pandas as pd
 import numpy as np
-import matplotlib as mpl
-import seaborn as sns
-from scripts.utils import setup_logger
-
-# ========== 设置中文字体 ==========
-# # 列出可用字体（调试用）：
-# import matplotlib.font_manager as fm
-# print([f.name for f in fm.fontManager.ttflist if 'WenQuanYi' in f.name or 'SimHei' in f.name])
-# plt.rcParams['font.sans-serif'] = ['WenQuanYi Zen Hei', 'SimHei', 'DejaVu Sans']
-# plt.rcParams['axes.unicode_minus'] = False  # 解决负号显示问题
-# # =================================
-
-import matplotlib
-matplotlib.use('Agg')  # 无图形界面后端
 import matplotlib.pyplot as plt
+import seaborn as sns
 
-# 设置中文字体（使用系统中存在的字体名）
-plt.rcParams['font.sans-serif'] = ['WenQuanYi Zen Hei']
-plt.rcParams['axes.unicode_minus'] = True
+sys.path.insert(0, str(Path(__file__).parent.parent))
+from scripts.utils import setup_logger
 
 def classify_error(token):
     if token.isdigit():
@@ -50,7 +33,6 @@ def classify_error(token):
     return "其他"
 
 def plot_nll_distribution(df, output_dir, logger):
-    print("当前字体设置:", plt.rcParams['font.sans-serif'])
     if df is None or 'nll' not in df.columns:
         return
     plt.figure(figsize=(12, 5))
@@ -100,17 +82,36 @@ def main():
     task_dir = base_dir / task_name
 
     step_cfg = config['steps']['04_statistics']
-    word_nll_csv = Path(step_cfg.get('input_word_csv', 'outputs/word_nll_details.csv'))
+
+    # 从元数据获取步骤03的输出路径（自动适配采样）
+    metadata_path = task_dir / "run_metadata.json"
+    if metadata_path.exists():
+        with open(metadata_path, 'r') as f:
+            metadata = json.load(f)
+        default_word_csv = Path(metadata['03_compute_word_nll']['output_csv'])
+        default_sentence_csv = Path(metadata['01_compute_sentence_nll']['output_csv'])
+        sample_ratio = metadata['01_compute_sentence_nll'].get('sample_ratio', 1.0)
+    else:
+        default_word_csv = task_dir / "outputs/word_nll_details.csv"
+        default_sentence_csv = task_dir / "intermediate/sentence_nll.csv"
+        sample_ratio = 1.0
+
+    word_nll_csv = Path(step_cfg.get('input_word_csv', default_word_csv))
     if not word_nll_csv.is_absolute():
         word_nll_csv = task_dir / word_nll_csv
-    sentence_nll_csv = step_cfg.get('input_sentence_csv', 'intermediate/sentence_nll.csv')
+
+    sentence_nll_csv = step_cfg.get('input_sentence_csv', default_sentence_csv)
     if sentence_nll_csv and not Path(sentence_nll_csv).is_absolute():
         sentence_nll_csv = task_dir / sentence_nll_csv
 
     output_dir = Path(step_cfg.get('output_dir', 'outputs/report'))
     if not output_dir.is_absolute():
-        timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-        output_dir = task_dir / f"outputs/{timestamp}_analysis/report"
+        # 如果采样，输出目录也加上采样比例标识
+        if sample_ratio < 1.0:
+            output_dir = task_dir / f"outputs/sample_{int(sample_ratio*100)}_analysis/report"
+        else:
+            timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+            output_dir = task_dir / f"outputs/{timestamp}_analysis/report"
     output_dir.mkdir(parents=True, exist_ok=True)
 
     top_k = step_cfg.get('top_k_suspicious_words', 30)
@@ -132,7 +133,7 @@ def main():
     total_tokens = len(word_df)
     avg_nll_all = word_df['nll'].mean()
     median_nll = word_df['nll'].median()
-    high_thresh = word_df['nll'].quantile(0.80)
+    high_thresh = word_df['nll'].quantile(0.95)
     high_nll_tokens = word_df[word_df['nll'] >= high_thresh]
 
     logger.info(f"总token数: {total_tokens}")
@@ -145,10 +146,6 @@ def main():
     token_groups = token_groups.sort_values('avg_nll', ascending=False)
     token_stats = token_groups[['token', 'avg_nll', 'count']].values.tolist()
     top_tokens = token_groups.head(top_k)
-
-    logger.info("Top 10 高平均NLL词:")
-    for _, row in top_tokens.head(10).iterrows():
-        logger.info(f"  {row['token']}: avg_nll={row['avg_nll']:.4f}, cnt={row['count']}")
 
     # 错误类别分类
     error_categories = defaultdict(lambda: {"count": 0, "total_nll": 0.0})
@@ -168,7 +165,8 @@ def main():
         if sentence_nll_csv and Path(sentence_nll_csv).exists():
             sent_df = pd.read_csv(sentence_nll_csv)
         plot_nll_distribution(sent_df, output_dir, logger)
-        plot_top_suspicious_tokens(token_stats, output_dir, top_k, min_count=5, logger=logger)
+        if token_stats:
+            plot_top_suspicious_tokens(token_stats, output_dir, top_k, min_count=5, logger=logger)
 
     # 保存输出
     top_tokens.to_csv(output_dir / "top_suspicious_words.csv", index=False)
@@ -182,6 +180,7 @@ def main():
         "high_nll_tokens_ratio": len(high_nll_tokens)/total_tokens,
         "top_suspicious_words": top_tokens.to_dict(orient="records"),
         "error_categories": cat_stats,
+        "sample_ratio": sample_ratio,
         "timestamp": datetime.now().isoformat()
     }
     with open(output_dir / "summary_report.json", 'w', encoding='utf-8') as f:
@@ -192,13 +191,14 @@ def main():
     with open(md_path, 'w', encoding='utf-8') as f:
         f.write(f"# ASR转录错误分析报告\n\n")
         f.write(f"**任务名称**: {task_name}\n")
+        f.write(f"**采样比例**: {sample_ratio*100:.1f}%\n")
         f.write(f"**生成时间**: {datetime.now().isoformat()}\n\n")
         f.write("## 1. 总体统计\n\n")
         f.write(f"- 总Token数: {total_tokens}\n")
         f.write(f"- 平均NLL: {avg_nll_all:.4f}\n")
         f.write(f"- NLL中位数: {median_nll:.4f}\n")
-        f.write(f"- NLL 80%分位数: {high_thresh:.4f}\n")
-        f.write(f"- NLL≥80分位数的Token占比: {len(high_nll_tokens)/total_tokens*100:.2f}%\n\n")
+        f.write(f"- NLL 95%分位数: {high_thresh:.4f}\n")
+        f.write(f"- NLL≥95分位数的Token占比: {len(high_nll_tokens)/total_tokens*100:.2f}%\n\n")
         f.write("## 2. 高频可疑词（Top 10）\n\n")
         f.write("| Token | 平均NLL | 出现次数 |\n")
         f.write("|-------|---------|----------|\n")
@@ -212,8 +212,7 @@ def main():
 
     logger.info(f"报告已保存至 {output_dir}")
 
-    # 元数据
-    metadata_path = task_dir / "run_metadata.json"
+    # 更新元数据
     metadata = {}
     if metadata_path.exists():
         with open(metadata_path, 'r') as f:
@@ -222,6 +221,7 @@ def main():
         "output_dir": str(output_dir),
         "total_tokens": total_tokens,
         "avg_nll": avg_nll_all,
+        "sample_ratio": sample_ratio,
         "timestamp": datetime.now().isoformat()
     }
     with open(metadata_path, 'w') as f:

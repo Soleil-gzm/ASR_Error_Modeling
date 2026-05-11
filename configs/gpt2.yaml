@@ -1,4 +1,4 @@
-task_name: "test_gpt2_original"
+task_name: "test_gpt2_sample_10"
 resume: true
 
 paths:
@@ -26,6 +26,8 @@ steps:
     max_seq_len: 256
     gpu_ids: [6,7]          # 根据您的GPU编号调整
     num_workers: 4
+    sample_ratio: 0.1      # 采样比例，1.0 表示全量
+    sample_seed: 42        # 随机种子，保证每次采样一致
 
   02_filter_high_nll:
     enabled: true

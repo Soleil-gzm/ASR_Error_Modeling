@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 """
 步骤02：筛选高NLL句子
+支持从元数据动态获取步骤01的输出，并输出带采样比例的文件名
 """
 
 import sys
@@ -8,11 +9,8 @@ import json
 import argparse
 from pathlib import Path
 from datetime import datetime
-# 将项目根目录加入 sys.path
-sys.path.insert(0, str(Path(__file__).parent.parent))
 import pandas as pd
 from scripts.utils import setup_logger
-
 
 def main():
     parser = argparse.ArgumentParser()
@@ -25,16 +23,36 @@ def main():
     task_dir = base_dir / task_name
 
     step_cfg = config['steps']['02_filter_high_nll']
-    input_csv = Path(step_cfg.get('input_csv', 'intermediate/sentence_nll.csv'))
+
+    # 从元数据获取步骤01的输出文件路径（自动适配采样）
+    metadata_path = task_dir / "run_metadata.json"
+    if metadata_path.exists():
+        with open(metadata_path, 'r') as f:
+            metadata = json.load(f)
+        default_input = Path(metadata['01_compute_sentence_nll']['output_csv'])
+        # 获取采样比例（如果有），用于输出文件名后缀
+        sample_ratio = metadata['01_compute_sentence_nll'].get('sample_ratio', 1.0)
+    else:
+        default_input = task_dir / "intermediate/sentence_nll.csv"
+        sample_ratio = 1.0
+
+    input_csv = Path(step_cfg.get('input_csv', default_input))
     if not input_csv.is_absolute():
         input_csv = task_dir / input_csv
+
     output_csv = Path(step_cfg.get('output_csv', 'intermediate/high_nll_sentences.csv'))
     if not output_csv.is_absolute():
         output_csv = task_dir / output_csv
+
+    # 如果采样比例 < 1.0，输出文件名添加采样比例后缀
+    if sample_ratio < 1.0:
+        stem = output_csv.stem
+        suffix = output_csv.suffix
+        output_csv = output_csv.with_name(f"{stem}_sample_{int(sample_ratio*100)}{suffix}")
     output_csv.parent.mkdir(parents=True, exist_ok=True)
 
-    threshold_percentile = step_cfg.get('threshold_percentile', 80)
-    min_sentence_len = step_cfg.get('min_sentence_len', 10)
+    threshold_percentile = step_cfg.get('threshold_percentile', 95)
+    min_sentence_len = step_cfg.get('min_sentence_len', 5)
     absolute_threshold = step_cfg.get('absolute_threshold', None)
 
     log_dir = task_dir / "logs"
@@ -66,8 +84,7 @@ def main():
     logger.info(f"筛选出 {len(high_nll_df)} 条高NLL句子 ({len(high_nll_df)/len(df)*100:.2f}%)")
     high_nll_df.to_csv(output_csv, index=False, encoding='utf-8')
 
-    # 元数据
-    metadata_path = task_dir / "run_metadata.json"
+    # 更新元数据（记录本步骤输出）
     metadata = {}
     if metadata_path.exists():
         with open(metadata_path, 'r') as f:
@@ -81,6 +98,7 @@ def main():
         "num_input_sentences": original_len,
         "num_filtered": len(high_nll_df),
         "threshold_value": float(threshold),
+        "sample_ratio": sample_ratio,
         "timestamp": datetime.now().isoformat()
     }
     with open(metadata_path, 'w') as f:

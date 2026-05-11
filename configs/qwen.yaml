@@ -25,6 +25,9 @@ steps:
     batch_size: 64
     max_seq_len: 128
     gpu_ids: [6,7]          # 根据您的GPU编号调整
+    num_workers: 4
+    sample_ratio: 0.1      # 采样10%的数据，当需要全量运行时，设置 sample_ratio: 1.0 或注释掉该参数（默认全量）
+    sample_seed: 42        # 随机种子，保证每次采样一致
 
   02_filter_high_nll:
     enabled: true
