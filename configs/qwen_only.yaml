@@ -44,7 +44,7 @@ steps:
     output_csv: "outputs/word_nll_details.csv"
     model_name: "./models/Qwen2.5-1.5B-Instruct"
     max_seq_len: 256
-    batch_size: 32
+    batch_size: 64
     gpu_ids: [7]          # 只使用一张卡
 
   04_statistics:

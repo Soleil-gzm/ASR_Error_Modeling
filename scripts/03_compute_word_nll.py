@@ -228,7 +228,13 @@ def main():
     # 更新元数据（历史追加）
     update_metadata_timing(metadata_path, "03_compute_word_nll", current_timing, latest_info)
 
-    # 同时保留原有的元数据字段（供下游读取）
+    # 重新加载元数据，确保有 '03_compute_word_nll' 键
+    with open(metadata_path, 'r') as f:
+        metadata = json.load(f)
+
+    # 确保键存在再更新
+    if '03_compute_word_nll' not in metadata:
+        metadata['03_compute_word_nll'] = {}
     metadata['03_compute_word_nll'].update({
         "input_csv": str(input_csv),
         "output_csv": str(output_csv),
@@ -241,6 +247,7 @@ def main():
         "sample_ratio": sample_ratio,
         "timestamp": datetime.now().isoformat()
     })
+
     with open(metadata_path, 'w') as f:
         json.dump(metadata, f, indent=2)
 
