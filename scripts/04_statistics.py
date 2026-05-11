@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """
 步骤04：统计分析，生成报告
-支持从元数据动态获取步骤03的输出，自动适配采样比例，报告输出也置于带采样比例的子目录
+从元数据获取步骤03的输出，自动适配采样，输出报告
 """
 
 import sys
@@ -19,6 +19,9 @@ import seaborn as sns
 sys.path.insert(0, str(Path(__file__).parent.parent))
 from scripts.utils import setup_logger
 
+# ------------------------------------------------------------
+# 辅助函数（保持不变）
+# ------------------------------------------------------------
 def classify_error(token):
     if token.isdigit():
         return "数字"
@@ -71,6 +74,9 @@ def plot_top_suspicious_tokens(token_stats, output_dir, top_n=30, min_count=5, l
     if logger:
         logger.info(f"Top可疑词图已保存: {out_path}")
 
+# ------------------------------------------------------------
+# 主函数
+# ------------------------------------------------------------
 def main():
     parser = argparse.ArgumentParser()
     parser.add_argument("--config_json", type=str, required=True)
@@ -83,30 +89,44 @@ def main():
 
     step_cfg = config['steps']['04_statistics']
 
-    # 从元数据获取步骤03的输出路径（自动适配采样）
+    log_dir = task_dir / "logs"
+    logger = setup_logger(log_dir, "04_statistics")
+
+    # 从元数据获取步骤03的输出路径
     metadata_path = task_dir / "run_metadata.json"
-    if metadata_path.exists():
-        with open(metadata_path, 'r') as f:
-            metadata = json.load(f)
-        default_word_csv = Path(metadata['03_compute_word_nll']['output_csv'])
-        default_sentence_csv = Path(metadata['01_compute_sentence_nll']['output_csv'])
-        sample_ratio = metadata['01_compute_sentence_nll'].get('sample_ratio', 1.0)
+    if not metadata_path.exists():
+        logger.error(f"元数据文件不存在: {metadata_path}，请先运行步骤03")
+        sys.exit(1)
+
+    with open(metadata_path, 'r') as f:
+        metadata = json.load(f)
+
+    if '03_compute_word_nll' not in metadata:
+        logger.error("元数据中缺少步骤03的记录，请先运行步骤03")
+        sys.exit(1)
+
+    word_nll_csv_rel = Path(metadata['03_compute_word_nll']['output_csv'])
+    project_root = base_dir.parent
+    if word_nll_csv_rel.is_absolute():
+        word_nll_csv = word_nll_csv_rel
     else:
-        default_word_csv = task_dir / "outputs/word_nll_details.csv"
-        default_sentence_csv = task_dir / "intermediate/sentence_nll.csv"
-        sample_ratio = 1.0
+        word_nll_csv = project_root / word_nll_csv_rel
 
-    word_nll_csv = Path(step_cfg.get('input_word_csv', default_word_csv))
-    if not word_nll_csv.is_absolute():
-        word_nll_csv = task_dir / word_nll_csv
+    # 获取采样比例（从步骤01的记录中取）
+    sample_ratio = metadata.get('01_compute_sentence_nll', {}).get('sample_ratio', 1.0)
 
-    sentence_nll_csv = step_cfg.get('input_sentence_csv', default_sentence_csv)
-    if sentence_nll_csv and not Path(sentence_nll_csv).is_absolute():
-        sentence_nll_csv = task_dir / sentence_nll_csv
+    # 句子级NLL文件（可选，用于绘图，从步骤01的记录获取）
+    sentence_nll_csv = None
+    if '01_compute_sentence_nll' in metadata:
+        sent_rel = Path(metadata['01_compute_sentence_nll']['output_csv'])
+        if sent_rel.is_absolute():
+            sentence_nll_csv = sent_rel
+        else:
+            sentence_nll_csv = project_root / sent_rel
 
+    # 输出报告目录
     output_dir = Path(step_cfg.get('output_dir', 'outputs/report'))
     if not output_dir.is_absolute():
-        # 如果采样，输出目录也加上采样比例标识
         if sample_ratio < 1.0:
             output_dir = task_dir / f"outputs/sample_{int(sample_ratio*100)}_analysis/report"
         else:
@@ -118,10 +138,9 @@ def main():
     min_occurrence = step_cfg.get('min_occurrence', 3)
     generate_plots = step_cfg.get('generate_plots', True)
 
-    log_dir = task_dir / "logs"
-    logger = setup_logger(log_dir, "04_statistics")
     logger.info(f"词级NLL文件: {word_nll_csv}")
     logger.info(f"输出报告目录: {output_dir}")
+    logger.info(f"采样比例: {sample_ratio}")
 
     if not word_nll_csv.exists():
         logger.error(f"词级NLL文件不存在: {word_nll_csv}")
@@ -162,7 +181,7 @@ def main():
     # 绘制图表
     if generate_plots:
         sent_df = None
-        if sentence_nll_csv and Path(sentence_nll_csv).exists():
+        if sentence_nll_csv and sentence_nll_csv.exists():
             sent_df = pd.read_csv(sentence_nll_csv)
         plot_nll_distribution(sent_df, output_dir, logger)
         if token_stats:
@@ -213,10 +232,6 @@ def main():
     logger.info(f"报告已保存至 {output_dir}")
 
     # 更新元数据
-    metadata = {}
-    if metadata_path.exists():
-        with open(metadata_path, 'r') as f:
-            metadata = json.load(f)
     metadata['04_statistics'] = {
         "output_dir": str(output_dir),
         "total_tokens": total_tokens,

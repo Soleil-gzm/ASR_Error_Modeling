@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """
 步骤03：对高NLL句子进行词级NLL计算
-支持从元数据动态获取步骤02的输出，输出文件名自动添加采样比例后缀
+从元数据获取步骤02的输出，输出文件名自动添加采样后缀
 """
 
 import sys
@@ -11,6 +11,7 @@ from pathlib import Path
 from datetime import datetime
 import pandas as pd
 from tqdm import tqdm
+
 sys.path.insert(0, str(Path(__file__).parent.parent))
 from scripts.utils import setup_logger, load_model_and_tokenizer, compute_word_nll
 
@@ -26,26 +27,38 @@ def main():
 
     step_cfg = config['steps']['03_compute_word_nll']
 
-    # 从元数据获取步骤02的输出路径（自动适配采样）
+    log_dir = task_dir / "logs"
+    logger = setup_logger(log_dir, "03_compute_word_nll")
+
+    # 从元数据获取步骤02的输出路径
     metadata_path = task_dir / "run_metadata.json"
-    if metadata_path.exists():
-        with open(metadata_path, 'r') as f:
-            metadata = json.load(f)
-        default_input = Path(metadata['02_filter_high_nll']['output_csv'])
-        sample_ratio = metadata['01_compute_sentence_nll'].get('sample_ratio', 1.0)
+    if not metadata_path.exists():
+        logger.error(f"元数据文件不存在: {metadata_path}，请先运行步骤02")
+        sys.exit(1)
+
+    with open(metadata_path, 'r') as f:
+        metadata = json.load(f)
+
+    if '02_filter_high_nll' not in metadata:
+        logger.error("元数据中缺少步骤02的记录，请先运行步骤02")
+        sys.exit(1)
+
+    # 步骤02的输出路径（元数据中存的是相对于项目根目录的路径）
+    input_csv_rel = Path(metadata['02_filter_high_nll']['output_csv'])
+    project_root = base_dir.parent
+    if input_csv_rel.is_absolute():
+        input_csv = input_csv_rel
     else:
-        default_input = task_dir / "intermediate/high_nll_sentences.csv"
-        sample_ratio = 1.0
+        input_csv = project_root / input_csv_rel
 
-    input_csv = Path(step_cfg.get('input_csv', default_input))
-    if not input_csv.is_absolute():
-        input_csv = task_dir / input_csv
+    # 获取采样比例（从步骤01的记录中取）
+    sample_ratio = metadata.get('01_compute_sentence_nll', {}).get('sample_ratio', 1.0)
 
+    # 输出文件路径
     output_csv = Path(step_cfg.get('output_csv', 'outputs/word_nll_details.csv'))
     if not output_csv.is_absolute():
         output_csv = task_dir / output_csv
 
-    # 如果采样比例 < 1.0，输出文件名添加采样比例后缀
     if sample_ratio < 1.0:
         stem = output_csv.stem
         suffix = output_csv.suffix
@@ -56,10 +69,9 @@ def main():
     model_name = step_cfg.get('model_name', 'uer/gpt2-chinese-cluecorpussmall')
     gpu_ids = step_cfg.get('gpu_ids', [6, 7])
 
-    log_dir = task_dir / "logs"
-    logger = setup_logger(log_dir, "03_compute_word_nll")
     logger.info(f"输入CSV: {input_csv}")
     logger.info(f"输出CSV: {output_csv}")
+    logger.info(f"采样比例: {sample_ratio}")
 
     if not input_csv.exists():
         logger.error(f"输入文件不存在: {input_csv}")
@@ -93,10 +105,6 @@ def main():
     logger.info(f"已保存至 {output_csv}")
 
     # 更新元数据
-    metadata = {}
-    if metadata_path.exists():
-        with open(metadata_path, 'r') as f:
-            metadata = json.load(f)
     metadata['03_compute_word_nll'] = {
         "input_csv": str(input_csv),
         "output_csv": str(output_csv),
