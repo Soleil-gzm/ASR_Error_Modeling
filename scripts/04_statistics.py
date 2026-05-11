@@ -24,9 +24,12 @@ from scripts.utils import setup_logger
 from scripts.utils.timer import TimedBlock, update_metadata_timing
 
 # ------------------------------------------------------------
-# 辅助函数（分类、绘图等保持不变）
+# 辅助函数
 # ------------------------------------------------------------
 def classify_error(token):
+    """分类错误类型，token 可能为字符串或数值，需先处理"""
+    if not isinstance(token, str):
+        return "其他"
     if token.isdigit():
         return "数字"
     if token in "，。！？；：、“”‘’《》【】（）":
@@ -59,9 +62,7 @@ def plot_nll_distribution(df, output_dir, logger):
     logger.info(f"分布图已保存: {out_path}")
 
 def plot_top_suspicious_words(word_stats, output_dir, top_n=30, min_count=5, logger=None):
-    """
-    word_stats: list of (word, avg_nll, count)
-    """
+    """word_stats: list of (word, avg_nll, count)"""
     filtered = [(w, avg, cnt) for w, avg, cnt in word_stats if cnt >= min_count]
     filtered.sort(key=lambda x: x[1], reverse=True)
     top = filtered[:top_n]
@@ -93,21 +94,17 @@ def aggregate_tokens_to_words(df, logger=None):
     if logger:
         logger.info("正在将 token 级 NLL 聚合为词级（使用 jieba）...")
     records = []
-    # 按句子分组
     for sent_id, group in df.groupby('sentence_id'):
         sentence = group['sentence'].iloc[0]
-        # 获取有效 token（token_index > 0，跳过第一个特殊 token）
         token_rows = group[group['token_index'] > 0].sort_values('token_index')
         if token_rows.empty:
             continue
         tokens = token_rows['token'].tolist()
         nlls = token_rows['nll'].tolist()
-        # jieba 分词得到词语列表（按照句子顺序）
         words = list(jieba.cut(sentence))
-        # 将 token 按 jieba 词语长度切片
         idx = 0
         for w in words:
-            length = len(w)  # 假设每个字符对应一个 token（GPT-2 中文下成立）
+            length = len(w)
             if idx + length <= len(tokens):
                 word_nlls = nlls[idx:idx+length]
                 avg_nll = sum(word_nlls) / length if length > 0 else float('nan')
@@ -119,11 +116,12 @@ def aggregate_tokens_to_words(df, logger=None):
                 })
                 idx += length
             else:
-                # 剩余 token 不够，直接退出（一般不会发生，除非分词异常）
                 if logger:
                     logger.warning(f"句子 {sent_id} token 数量不足，部分词被忽略")
                 break
     result_df = pd.DataFrame(records)
+    # 确保 word 列是字符串类型
+    result_df['word'] = result_df['word'].astype(str)
     if logger:
         logger.info(f"聚合完成，共 {len(result_df)} 个词级记录")
     return result_df
@@ -166,12 +164,9 @@ def main():
     else:
         word_nll_csv = project_root / word_nll_csv_rel
 
-    # 获取模型名称，用于判断是否需要聚合
     model_name = metadata.get('03_compute_word_nll', {}).get('model_name', '')
-    # 采样比例
     sample_ratio = metadata.get('01_compute_sentence_nll', {}).get('sample_ratio', 1.0)
 
-    # 句子级NLL文件（可选，用于绘图）
     sentence_nll_csv = None
     if '01_compute_sentence_nll' in metadata:
         sent_rel = Path(metadata['01_compute_sentence_nll']['output_csv'])
@@ -180,7 +175,6 @@ def main():
         else:
             sentence_nll_csv = project_root / sent_rel
 
-    # 输出报告目录
     output_dir = Path(step_cfg.get('output_dir', 'outputs/report'))
     if not output_dir.is_absolute():
         if sample_ratio < 1.0:
@@ -211,21 +205,18 @@ def main():
         token_df = pd.read_csv(word_nll_csv)
     logger.info(f"加载 {len(token_df)} 条 token 级记录")
 
-    # 2. 根据模型自动聚合（仅对 GPT-2 等字级模型）
+    # 2. 根据模型自动聚合
     with TimedBlock("aggregate_words", timing):
-        # 判断是否需要聚合（简单启发式：模型名称包含 'gpt2' 且不是 'qwen'）
         need_aggregate = ('gpt2' in model_name.lower() and 'qwen' not in model_name.lower())
         if need_aggregate:
             logger.info("检测到 GPT-2 模型，将 token 级 NLL 聚合为词级")
             df = aggregate_tokens_to_words(token_df, logger)
         else:
             logger.info("模型 token 已是词级别，直接使用 token 作为词")
-            # 将 token 级记录转换为词级形式（token 就是词）
             df = token_df.rename(columns={'token': 'word', 'nll': 'avg_nll'})
             df = df[['sentence_id', 'word', 'avg_nll', 'sentence']]
-            # 注意：每个 token 对应一个词，但需要去除第一个特殊 token（已在 token_df 中保留？）
-            # 实际上 token_df 中第一个 token (index=0) 的 nll 为 NaN，已被过滤（因为计算时跳过 NaN）
-            # 所以直接使用所有非 NaN 记录即可
+            # 确保 word 列是字符串（消除可能的浮点数）
+            df['word'] = df['word'].astype(str)
     logger.info(f"分析数据共有 {len(df)} 条词级记录")
 
     if len(df) == 0:
@@ -251,10 +242,13 @@ def main():
         word_stats = word_groups[['word', 'avg_nll', 'count']].values.tolist()
         top_words = word_groups.head(top_k)
 
-        # 错误类别分类（基于词本身，但可沿用原分类函数）
+        # 错误类别分类（确保 word 是字符串）
         error_categories = defaultdict(lambda: {"count": 0, "total_nll": 0.0})
         for _, row in df.iterrows():
-            cat = classify_error(row['word'])
+            word = row['word']
+            if pd.isna(word) or not isinstance(word, str):
+                continue
+            cat = classify_error(word)
             error_categories[cat]["count"] += 1
             error_categories[cat]["total_nll"] += row['avg_nll']
         cat_stats = []
@@ -263,7 +257,7 @@ def main():
             cat_stats.append((cat, vals["count"], avg_nll))
         cat_stats.sort(key=lambda x: x[1], reverse=True)
 
-    # 4. 绘制图表
+    # 4. 绘图
     if generate_plots:
         with TimedBlock("generate_plots", timing):
             sent_df = None
@@ -273,7 +267,7 @@ def main():
             if word_stats:
                 plot_top_suspicious_words(word_stats, output_dir, top_k, min_count=5, logger=logger)
 
-    # 5. 保存输出文件
+    # 5. 保存输出
     with TimedBlock("save_output", timing):
         top_words.to_csv(output_dir / "top_suspicious_words.csv", index=False)
         pd.DataFrame(cat_stats, columns=["category", "count", "avg_nll"]).to_csv(output_dir / "error_categories.csv", index=False)
@@ -323,7 +317,7 @@ def main():
     logger.info(f"报告已保存至 {output_dir}")
     logger.info(f"总耗时: {timing['total_sec']:.2f}s")
 
-    # 构建计时记录
+    # 计时历史追加
     current_timing = {
         "timestamp": datetime.now().isoformat(),
         "read_token_csv_sec": timing.get("read_token_csv", 0),
@@ -346,8 +340,12 @@ def main():
     }
     update_metadata_timing(metadata_path, "04_statistics", current_timing, latest_info)
 
-    # 同时保留原有元数据字段
-    metadata['04_statistics'] = {
+    # 重新加载元数据更新常规字段
+    with open(metadata_path, 'r') as f:
+        metadata = json.load(f)
+    if '04_statistics' not in metadata:
+        metadata['04_statistics'] = {}
+    metadata['04_statistics'].update({
         "output_dir": str(output_dir),
         "total_words": total_words,
         "avg_nll": avg_nll_all,
@@ -355,7 +353,7 @@ def main():
         "model_name": model_name,
         "aggregated": need_aggregate,
         "timestamp": datetime.now().isoformat()
-    }
+    })
     with open(metadata_path, 'w') as f:
         json.dump(metadata, f, indent=2)
 
