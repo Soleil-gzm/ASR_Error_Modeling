@@ -56,3 +56,10 @@ steps:
     top_k_suspicious_words: 30      # 报告中展示的平均NLL最高的词数量
     min_occurrence: 3       # 一个词至少出现多少次才纳入统计（过滤低频词）
     generate_plots: true    # 是否生成分布图、条形图等
+
+  
+  05_extract_noise_words:
+    enabled: true
+    script: "scripts/05_extract_noise_words.py"
+    prev_window: 1
+    nll_threshold_percentile: 95

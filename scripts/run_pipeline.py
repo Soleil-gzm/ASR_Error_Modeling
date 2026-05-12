@@ -125,7 +125,7 @@ def main():
 
     # 定义步骤顺序（与配置文件中的steps键名一致）
     steps_order = ['00_preprocess', '01_compute_sentence_nll', '02_filter_high_nll',
-                   '03_compute_word_nll', '04_statistics']
+                   '03_compute_word_nll', '04_statistics','05_extract_noise_words']
 
     if args.step:
         if args.step not in config['steps']:
