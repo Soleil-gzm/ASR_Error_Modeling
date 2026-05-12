@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 """
 步骤01：计算句子级平均NLL（GPU批处理） - 缓存 tokenization，历史计时
+集成缓存健康检查，自动失效和重建
 """
 
 import sys
@@ -18,6 +19,7 @@ from torch.utils.data import DataLoader, TensorDataset
 sys.path.insert(0, str(Path(__file__).parent.parent))
 from scripts.utils import setup_logger, load_model_and_tokenizer
 from scripts.utils.timer import TimedBlock, update_metadata_timing
+from scripts.utils.cache import is_cache_valid, write_cache_meta, invalidate_cache
 
 # ---------- 辅助函数 ----------
 def compute_nll_from_tensors(model, input_ids, attention_mask, batch_size, device, desc="推理"):
@@ -55,14 +57,6 @@ def save_chunk_cache(cache_dir, chunk_idx, input_ids, attention_mask, ids):
 def load_chunk_cache(cache_dir, chunk_idx):
     data = torch.load(cache_dir / f"chunk_{chunk_idx:04d}.pt", map_location='cpu')
     return data['input_ids'], data['attention_mask'], data['ids']
-
-def exists_cache(cache_dir, expected_chunks=None):
-    chunks = list(cache_dir.glob("chunk_*.pt"))
-    if not chunks:
-        return False
-    if expected_chunks is not None and len(chunks) != expected_chunks:
-        return False
-    return True
 
 # ---------- 主函数 ----------
 def main():
@@ -111,21 +105,37 @@ def main():
         model, tokenizer, device = load_model_and_tokenizer(model_name, device_ids=gpu_ids)
     logger.info(f"模型加载完成，设备: {device}，耗时: {timing['load_model']:.2f}s")
 
-    # 缓存目录
+    # 缓存目录（已包含模型名和长度，保证不同参数隔离）
     cache_dir = task_dir / "intermediate" / f"tokenized_cache_{model_name.replace('/', '_')}_{max_seq_len}"
-    full_cache_exists = exists_cache(cache_dir)
 
-    # 2. 数据准备（tokenization 或加载缓存）
+    # 定义当前缓存的参数关键字段
+    current_cache_params = {
+        "model_name": model_name,
+        "max_seq_len": max_seq_len,
+        # 可选：添加 tokenizer 类名以检测 tokenizer 变化
+        # "tokenizer_class": tokenizer.__class__.__name__,
+    }
+
+    # 检查缓存是否有效（参数一致且分块完整）
+    if is_cache_valid(cache_dir, current_cache_params):
+        logger.info("发现有效缓存，将直接使用缓存（跳过tokenization）")
+        full_cache_exists = True
+    else:
+        logger.info("缓存无效或不存在，将重新生成缓存")
+        invalidate_cache(cache_dir)   # 删除无效缓存（若有）
+        full_cache_exists = False
+
     data_prep_start = time.perf_counter()
 
     if full_cache_exists:
-        logger.info("发现全量缓存，将直接使用缓存（跳过tokenization）")
+        # 加载缓存
         all_input_ids = []
         all_attention_masks = []
         all_ids = []
         chunk_files = sorted(cache_dir.glob("chunk_*.pt"))
         load_cache_start = time.perf_counter()
         for ch_file in tqdm(chunk_files, desc="加载缓存分块"):
+            # 从文件名提取 chunk 索引（格式 chunk_0000.pt）
             idx = int(ch_file.stem.split('_')[1])
             input_ids, attn_mask, ids = load_chunk_cache(cache_dir, idx)
             all_input_ids.append(input_ids)
@@ -151,7 +161,8 @@ def main():
         logger.info(f"缓存加载+采样耗时: {data_prep_time:.2f}s (其中加载缓存 {load_cache_time:.2f}s)")
         tokenize_time = None
     else:
-        logger.info("未发现缓存，将进行tokenization并创建缓存")
+        # 重新生成缓存
+        logger.info("未发现有效缓存，将进行tokenization并创建缓存")
         csv_iter = pd.read_csv(input_csv, chunksize=chunk_size)
         all_input_ids = []
         all_attention_masks = []
@@ -173,6 +184,9 @@ def main():
         tokenize_time = time.perf_counter() - tokenize_start
         logger.info(f"Tokenization 耗时: {tokenize_time:.2f}s")
 
+        # 保存缓存元信息（包括分块数量）
+        write_cache_meta(cache_dir, current_cache_params, chunk_idx)
+
         input_ids_all = torch.cat(all_input_ids, dim=0)
         attention_mask_all = torch.cat(all_attention_masks, dim=0)
         total = input_ids_all.size(0)
@@ -191,7 +205,7 @@ def main():
         data_prep_time = time.perf_counter() - data_prep_start
         logger.info(f"数据准备总耗时: {data_prep_time:.2f}s (其中tokenization {tokenize_time:.2f}s)")
 
-    # 将数据准备耗时存储到 timing 字典（用于元数据，但 TimedBlock 不能跨分支，故手动添加）
+    # 将数据准备耗时存储到 timing 字典（用于元数据）
     timing["data_preparation"] = data_prep_time
 
     # 3. 推理

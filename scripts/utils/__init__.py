@@ -14,6 +14,8 @@ from .text_cleaner import (
 )
 from .model_loader import load_model_and_tokenizer
 from .nll_calculator import compute_sentence_nll_batch, compute_word_nll
+from .cache import is_cache_valid, write_cache_meta, invalidate_cache
+from .metadata import get_step_output, get_step_sample_ratio
 
 __all__ = [
     'setup_logger',
