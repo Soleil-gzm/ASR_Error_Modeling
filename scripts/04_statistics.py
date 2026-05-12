@@ -219,11 +219,18 @@ def main():
 
     sentence_nll_csv = None
     if '01_compute_sentence_nll' in metadata:
-        sent_rel = Path(metadata['01_compute_sentence_nll']['output_csv'])
-        if sent_rel.is_absolute():
-            sentence_nll_csv = sent_rel
+        step1_info = metadata['01_compute_sentence_nll']
+        if 'output_csv' in step1_info:
+            sent_rel = Path(step1_info['output_csv'])
+        elif 'latest' in step1_info and 'output_csv' in step1_info['latest']:
+            sent_rel = Path(step1_info['latest']['output_csv'])
         else:
-            sentence_nll_csv = project_root / sent_rel
+            sent_rel = None
+        if sent_rel:
+            if sent_rel.is_absolute():
+                sentence_nll_csv = sent_rel
+            else:
+                sentence_nll_csv = project_root / sent_rel
 
     output_dir = Path(step_cfg.get('output_dir', 'outputs/report'))
     if not output_dir.is_absolute():
