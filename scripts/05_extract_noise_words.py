@@ -13,6 +13,7 @@ import json
 import argparse
 import time
 from pathlib import Path
+from datetime import datetime
 import pandas as pd
 
 sys.path.insert(0, str(Path(__file__).parent.parent))
@@ -39,7 +40,6 @@ def main():
     with open(metadata_path, 'r') as f:
         metadata = json.load(f)
 
-    # 日志
     log_dir = task_dir / "logs"
     logger = setup_logger(log_dir, "05_extract_noise_words")
     logger.info("开始提取异常词与前文词的对应关系（单词对 + 短语对）")
@@ -49,26 +49,30 @@ def main():
     if step4_output_dir_rel is None:
         logger.error("无法从元数据获取步骤04的输出目录")
         sys.exit(1)
-    output_dir = project_root / Path(step4_output_dir_rel)
-    logger.info(f"步骤04输出目录: {output_dir}")
+    report_dir = project_root / Path(step4_output_dir_rel)
+    # 输出目录改为 report_dir 的父目录（即 outputs/sample_20_analysis/）
+    output_dir = report_dir.parent
+    logger.info(f"步骤04报告目录: {report_dir}")
+    logger.info(f"噪声文件输出目录: {output_dir}")
 
     # 从配置文件读取参数
     step_cfg = config['steps'].get('05_extract_noise_words', {})
-    prev_window = step_cfg.get('prev_window', 1)   # 前文窗口大小（1 或 2）
-    threshold_percentile = step_cfg.get('threshold_percentile', 95)
+    prev_window = step_cfg.get('prev_window', 1)
+    # 兼容两种键名
+    threshold_percentile = step_cfg.get('threshold_percentile', step_cfg.get('nll_threshold_percentile', 95))
 
     total_start = time.perf_counter()
     timing = {}
 
     # 1. 读取数据
     with TimedBlock("load_data", timing):
-        agg_csv = output_dir / "word_level_aggregated.csv"
+        agg_csv = report_dir / "word_level_aggregated.csv"
         if not agg_csv.exists():
             sample_ratio = get_step_sample_ratio(metadata, '01_compute_sentence_nll')
             if sample_ratio < 1.0:
-                agg_csv = output_dir / f"word_level_aggregated_sample_{int(sample_ratio*100)}.csv"
+                agg_csv = report_dir / f"word_level_aggregated_sample_{int(sample_ratio*100)}.csv"
             if not agg_csv.exists():
-                logger.error(f"未找到词级聚合文件: {output_dir}/word_level_aggregated*.csv")
+                logger.error(f"未找到词级聚合文件: {report_dir}/word_level_aggregated*.csv")
                 sys.exit(1)
         df = pd.read_csv(agg_csv)
         if 'word_index' not in df.columns:
@@ -80,8 +84,8 @@ def main():
         threshold = df['avg_nll'].quantile(threshold_percentile / 100.0)
         logger.info(f"异常词 NLL 阈值 ({threshold_percentile}%): {threshold:.4f}")
 
-        single_pairs = []   # (前一个词, 异常词)
-        phrase_pairs = []   # (前两个词拼接, 异常词)
+        single_pairs = []
+        phrase_pairs = []
         for sent_id, group in df.sort_values(['sentence_id', 'word_index']).groupby('sentence_id'):
             words = group['word'].tolist()
             nlls = group['avg_nll'].tolist()
@@ -97,7 +101,7 @@ def main():
 
     logger.info(f"共提取 {len(single_pairs)} 条单词对，{len(phrase_pairs)} 条短语对")
 
-    # 3. 保存文件
+    # 3. 保存文件到 output_dir
     with TimedBlock("save_output", timing):
         output_single_csv = output_dir / "noise_pairs.csv"
         if single_pairs:
@@ -113,14 +117,28 @@ def main():
         else:
             pd.DataFrame(columns=['prev_phrase', 'abnormal_word']).to_csv(output_phrase_csv, index=False)
 
+        # 统计信息也放到 output_dir
+        stats = {
+            "total_single_pairs": len(single_pairs),
+            "unique_prev_words": len(set(p[0] for p in single_pairs)),
+            "unique_abnormal_words": len(set(p[1] for p in single_pairs)),
+            "total_phrase_pairs": len(phrase_pairs),
+            "unique_phrases": len(set(p[0] for p in phrase_pairs)),
+            "threshold_percentile": threshold_percentile,
+            "prev_window": prev_window
+        }
+        with open(output_dir / "noise_pairs_stats.json", 'w') as f:
+            json.dump(stats, f, indent=2)
+
     timing["total_sec"] = time.perf_counter() - total_start
     logger.info(f"单词对保存至 {output_single_csv}")
     logger.info(f"短语对保存至 {output_phrase_csv}")
+    logger.info(f"统计信息保存至 {output_dir}/noise_pairs_stats.json")
     logger.info(f"总耗时: {timing['total_sec']:.2f}s")
 
     # 构建当前运行的计时记录
     current_timing = {
-        "timestamp": time.strftime("%Y-%m-%d %H:%M:%S"),
+        "timestamp": datetime.now().isoformat(),
         "load_data_sec": timing.get("load_data", 0),
         "extract_pairs_sec": timing.get("extract_pairs", 0),
         "save_output_sec": timing.get("save_output", 0),
