@@ -5,17 +5,20 @@
   - noise_pairs.csv: 每个前驱词单独成对 (prev_word, abnormal_word)
   - noise_pairs_phrase.csv: 将前 prev_window 个词拼接成短语 (prev_phrase, abnormal_word)
 支持配置前文窗口大小（prev_window: 1 或 2）
+包含计时和元数据记录
 """
 
 import sys
 import json
 import argparse
+import time
 from pathlib import Path
 import pandas as pd
 
 sys.path.insert(0, str(Path(__file__).parent.parent))
 from scripts.utils import setup_logger
 from scripts.utils import get_step_output, get_step_sample_ratio
+from scripts.utils.timer import TimedBlock, update_metadata_timing
 
 def main():
     parser = argparse.ArgumentParser()
@@ -49,86 +52,115 @@ def main():
     output_dir = project_root / Path(step4_output_dir_rel)
     logger.info(f"步骤04输出目录: {output_dir}")
 
-    # 读取词级聚合文件
-    agg_csv = output_dir / "word_level_aggregated.csv"
-    if not agg_csv.exists():
-        sample_ratio = get_step_sample_ratio(metadata, '01_compute_sentence_nll')
-        if sample_ratio < 1.0:
-            agg_csv = output_dir / f"word_level_aggregated_sample_{int(sample_ratio*100)}.csv"
-        if not agg_csv.exists():
-            logger.error(f"未找到词级聚合文件: {output_dir}/word_level_aggregated*.csv")
-            sys.exit(1)
-    df = pd.read_csv(agg_csv)
-    logger.info(f"加载 {len(df)} 条词级记录")
-
-    # 确保有 word_index 列
-    if 'word_index' not in df.columns:
-        df['word_index'] = df.groupby('sentence_id').cumcount()
-
     # 从配置文件读取参数
     step_cfg = config['steps'].get('05_extract_noise_words', {})
     prev_window = step_cfg.get('prev_window', 1)   # 前文窗口大小（1 或 2）
     threshold_percentile = step_cfg.get('threshold_percentile', 95)
 
-    # 计算异常词阈值
-    threshold = df['avg_nll'].quantile(threshold_percentile / 100.0)
-    logger.info(f"异常词 NLL 阈值 ({threshold_percentile}%): {threshold:.4f}")
+    total_start = time.perf_counter()
+    timing = {}
 
-    # 提取两种对
-    single_pairs = []   # (前一个词, 异常词)
-    phrase_pairs = []   # (前两个词拼接, 异常词) 仅当 prev_window >= 2 且存在足够前文时
+    # 1. 读取数据
+    with TimedBlock("load_data", timing):
+        agg_csv = output_dir / "word_level_aggregated.csv"
+        if not agg_csv.exists():
+            sample_ratio = get_step_sample_ratio(metadata, '01_compute_sentence_nll')
+            if sample_ratio < 1.0:
+                agg_csv = output_dir / f"word_level_aggregated_sample_{int(sample_ratio*100)}.csv"
+            if not agg_csv.exists():
+                logger.error(f"未找到词级聚合文件: {output_dir}/word_level_aggregated*.csv")
+                sys.exit(1)
+        df = pd.read_csv(agg_csv)
+        if 'word_index' not in df.columns:
+            df['word_index'] = df.groupby('sentence_id').cumcount()
+    logger.info(f"加载 {len(df)} 条词级记录")
 
-    for sent_id, group in df.sort_values(['sentence_id', 'word_index']).groupby('sentence_id'):
-        words = group['word'].tolist()
-        nlls = group['avg_nll'].tolist()
-        for i, (w, nll) in enumerate(zip(words, nlls)):
-            if nll > threshold:
-                # 提取前 prev_window 个词（如果存在）
-                start = max(0, i - prev_window)
-                # 生成单词对：每个前驱词单独成对
-                for j in range(start, i):
-                    prev_word = words[j]
-                    single_pairs.append((prev_word, w))
-                # 如果窗口大于1且存在足够的前文词（至少 2 个），生成短语对
-                if prev_window >= 2 and i - start >= prev_window:
-                    # 提取连续的 prev_window 个词作为短语（用空格连接）
-                    phrase_tokens = words[start:i]
-                    phrase = ' '.join(phrase_tokens)
-                    phrase_pairs.append((phrase, w))
+    # 2. 提取对
+    with TimedBlock("extract_pairs", timing):
+        threshold = df['avg_nll'].quantile(threshold_percentile / 100.0)
+        logger.info(f"异常词 NLL 阈值 ({threshold_percentile}%): {threshold:.4f}")
+
+        single_pairs = []   # (前一个词, 异常词)
+        phrase_pairs = []   # (前两个词拼接, 异常词)
+        for sent_id, group in df.sort_values(['sentence_id', 'word_index']).groupby('sentence_id'):
+            words = group['word'].tolist()
+            nlls = group['avg_nll'].tolist()
+            for i, (w, nll) in enumerate(zip(words, nlls)):
+                if nll > threshold:
+                    start = max(0, i - prev_window)
+                    for j in range(start, i):
+                        single_pairs.append((words[j], w))
+                    if prev_window >= 2 and i - start >= prev_window:
+                        phrase_tokens = words[start:i]
+                        phrase = ' '.join(phrase_tokens)
+                        phrase_pairs.append((phrase, w))
 
     logger.info(f"共提取 {len(single_pairs)} 条单词对，{len(phrase_pairs)} 条短语对")
 
-    # 保存单词对
-    output_single_csv = output_dir / "noise_pairs.csv"
-    if len(single_pairs) > 0:
-        single_df = pd.DataFrame(single_pairs, columns=['prev_word', 'abnormal_word'])
-        single_df.to_csv(output_single_csv, index=False, encoding='utf-8')
-    else:
-        pd.DataFrame(columns=['prev_word', 'abnormal_word']).to_csv(output_single_csv, index=False)
-    logger.info(f"单词对已保存至 {output_single_csv}")
+    # 3. 保存文件
+    with TimedBlock("save_output", timing):
+        output_single_csv = output_dir / "noise_pairs.csv"
+        if single_pairs:
+            single_df = pd.DataFrame(single_pairs, columns=['prev_word', 'abnormal_word'])
+            single_df.to_csv(output_single_csv, index=False, encoding='utf-8')
+        else:
+            pd.DataFrame(columns=['prev_word', 'abnormal_word']).to_csv(output_single_csv, index=False)
 
-    # 保存短语对
-    output_phrase_csv = output_dir / "noise_pairs_phrase.csv"
-    if len(phrase_pairs) > 0:
-        phrase_df = pd.DataFrame(phrase_pairs, columns=['prev_phrase', 'abnormal_word'])
-        phrase_df.to_csv(output_phrase_csv, index=False, encoding='utf-8')
-    else:
-        pd.DataFrame(columns=['prev_phrase', 'abnormal_word']).to_csv(output_phrase_csv, index=False)
-    logger.info(f"短语对已保存至 {output_phrase_csv}")
+        output_phrase_csv = output_dir / "noise_pairs_phrase.csv"
+        if phrase_pairs:
+            phrase_df = pd.DataFrame(phrase_pairs, columns=['prev_phrase', 'abnormal_word'])
+            phrase_df.to_csv(output_phrase_csv, index=False, encoding='utf-8')
+        else:
+            pd.DataFrame(columns=['prev_phrase', 'abnormal_word']).to_csv(output_phrase_csv, index=False)
 
-    # 统计信息
-    stats = {
-        "total_single_pairs": len(single_pairs),
-        "unique_prev_words": len(set(p[0] for p in single_pairs)),
-        "unique_abnormal_words": len(set(p[1] for p in single_pairs)),
-        "total_phrase_pairs": len(phrase_pairs),
-        "unique_phrases": len(set(p[0] for p in phrase_pairs)),
-        "threshold_percentile": threshold_percentile,
-        "prev_window": prev_window
+    timing["total_sec"] = time.perf_counter() - total_start
+    logger.info(f"单词对保存至 {output_single_csv}")
+    logger.info(f"短语对保存至 {output_phrase_csv}")
+    logger.info(f"总耗时: {timing['total_sec']:.2f}s")
+
+    # 构建当前运行的计时记录
+    current_timing = {
+        "timestamp": time.strftime("%Y-%m-%d %H:%M:%S"),
+        "load_data_sec": timing.get("load_data", 0),
+        "extract_pairs_sec": timing.get("extract_pairs", 0),
+        "save_output_sec": timing.get("save_output", 0),
+        "total_sec": timing["total_sec"],
+        "num_single_pairs": len(single_pairs),
+        "num_phrase_pairs": len(phrase_pairs),
+        "prev_window": prev_window,
+        "threshold_percentile": threshold_percentile
     }
-    with open(output_dir / "noise_pairs_stats.json", 'w') as f:
-        json.dump(stats, f, indent=2)
-    logger.info(f"统计信息已保存至 {output_dir}/noise_pairs_stats.json")
+
+    # 最新一次运行的关键信息
+    latest_info = {
+        "output_dir": str(output_dir),
+        "num_single_pairs": len(single_pairs),
+        "num_phrase_pairs": len(phrase_pairs),
+        "prev_window": prev_window,
+        "threshold_percentile": threshold_percentile,
+        "timestamp": datetime.now().isoformat()
+    }
+
+    # 更新元数据（历史追加）
+    update_metadata_timing(metadata_path, "05_extract_noise_words", current_timing, latest_info)
+
+    # 重新加载并存储常规字段（可选）
+    with open(metadata_path, 'r') as f:
+        metadata = json.load(f)
+    if '05_extract_noise_words' not in metadata:
+        metadata['05_extract_noise_words'] = {}
+    metadata['05_extract_noise_words'].update({
+        "output_dir": str(output_dir),
+        "num_single_pairs": len(single_pairs),
+        "num_phrase_pairs": len(phrase_pairs),
+        "prev_window": prev_window,
+        "threshold_percentile": threshold_percentile,
+        "timestamp": datetime.now().isoformat()
+    })
+    with open(metadata_path, 'w') as f:
+        json.dump(metadata, f, indent=2)
+
+    logger.info("步骤05完成")
 
 if __name__ == "__main__":
     main()
