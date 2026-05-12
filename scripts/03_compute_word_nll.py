@@ -120,7 +120,16 @@ def main():
         logger.error("缺少步骤02的记录，请先运行步骤02")
         sys.exit(1)
 
-    input_csv_rel = Path(metadata['02_filter_high_nll']['output_csv'])
+    # 从元数据获取步骤02的输出文件路径（适配新旧格式）
+    step2_info = metadata['02_filter_high_nll']
+    if 'output_csv' in step2_info:
+        input_csv_rel = Path(step2_info['output_csv'])
+    elif 'latest' in step2_info and 'output_csv' in step2_info['latest']:
+        input_csv_rel = Path(step2_info['latest']['output_csv'])
+    else:
+        logger.error("无法找到步骤02的输出文件路径，请检查 run_metadata.json")
+        sys.exit(1)
+
     project_root = base_dir.parent
     input_csv = project_root / input_csv_rel if not input_csv_rel.is_absolute() else input_csv_rel
 
