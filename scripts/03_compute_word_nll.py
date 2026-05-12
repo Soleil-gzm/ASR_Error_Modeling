@@ -133,7 +133,14 @@ def main():
     project_root = base_dir.parent
     input_csv = project_root / input_csv_rel if not input_csv_rel.is_absolute() else input_csv_rel
 
-    sample_ratio = metadata.get('01_compute_sentence_nll', {}).get('sample_ratio', 1.0)
+    # 从步骤01的元数据中获取采样比例（适配新旧格式）
+    step1_info = metadata.get('01_compute_sentence_nll', {})
+    if 'sample_ratio' in step1_info:
+        sample_ratio = step1_info['sample_ratio']
+    elif 'latest' in step1_info and 'sample_ratio' in step1_info['latest']:
+        sample_ratio = step1_info['latest']['sample_ratio']
+    else:
+        sample_ratio = 1.0
 
     output_csv = Path(step_cfg.get('output_csv', 'outputs/word_nll_details.csv'))
     if not output_csv.is_absolute():
