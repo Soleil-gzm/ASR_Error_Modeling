@@ -1,5 +1,5 @@
-task_name: "datas_gpt2_sample_10"
-resume: true
+task_name: "datas_gpt2_sample_20"
+resume: false
 
 paths:
   input:
@@ -9,7 +9,7 @@ paths:
 
 steps:
   00_preprocess:
-    enabled: true
+    enabled: false
     script: "scripts/00_preprocess.py"
     output_csv: "intermediate/all_sentences.csv"
     min_sentence_len: 3
@@ -17,7 +17,7 @@ steps:
     split_by_punct: false
 
   01_compute_sentence_nll:
-    enabled: true
+    enabled: false
     script: "scripts/01_compute_sentence_nll.py"
     input_csv: "intermediate/all_sentences.csv"
     output_csv: "intermediate/sentence_nll.csv"
@@ -26,11 +26,11 @@ steps:
     max_seq_len: 256
     gpu_ids: [7]          # 根据您的GPU编号调整
     num_workers: 4
-    sample_ratio: 0.1      # 采样比例，1.0 表示全量
+    sample_ratio: 0.2      # 采样比例，1.0 表示全量
     sample_seed: 42        # 随机种子，保证每次采样一致
 
   02_filter_high_nll:
-    enabled: true
+    enabled: false
     script: "scripts/02_filter_high_nll.py"
     input_csv: "intermediate/sentence_nll.csv"
     output_csv: "intermediate/high_nll_sentences.csv"
@@ -38,7 +38,7 @@ steps:
     min_sentence_len: 10
 
   03_compute_word_nll:
-    enabled: true
+    enabled: false
     script: "scripts/03_compute_word_nll.py"
     input_csv: "intermediate/high_nll_sentences.csv"
     output_csv: "outputs/word_nll_details.csv"
@@ -53,6 +53,6 @@ steps:
     input_word_csv: "outputs/word_nll_details.csv"
     input_sentence_csv: "intermediate/sentence_nll.csv"
     output_dir: "outputs/report"
-    top_k_suspicious_words: 30
-    min_occurrence: 3
-    generate_plots: true
+    top_k_suspicious_words: 30      # 报告中展示的平均NLL最高的词数量
+    min_occurrence: 3       # 一个词至少出现多少次才纳入统计（过滤低频词）
+    generate_plots: true    # 是否生成分布图、条形图等

@@ -1,15 +1,15 @@
-task_name: "test_Qwen_sample_10_pt"
-resume: false
+task_name: "Qwen_sample_20"
+resume: true
 
 paths:
   input:
-    raw_data_dir: "./datas_original"
+    raw_data_dir: "./datas"
   output:
     base_dir: "./work"
 
 steps:
   00_preprocess:
-    enabled: false
+    enabled: true
     script: "scripts/00_preprocess.py"
     output_csv: "intermediate/all_sentences.csv"
     min_sentence_len: 3
@@ -17,7 +17,7 @@ steps:
     split_by_punct: false
 
   01_compute_sentence_nll:
-    enabled: false
+    enabled: true
     script: "scripts/01_compute_sentence_nll.py"
     input_csv: "intermediate/all_sentences.csv"
     output_csv: "intermediate/sentence_nll.csv"
@@ -30,7 +30,7 @@ steps:
     sample_seed: 42        # 随机种子，保证每次采样一致
 
   02_filter_high_nll:
-    enabled: false
+    enabled: true
     script: "scripts/02_filter_high_nll.py"
     input_csv: "intermediate/sentence_nll.csv"
     output_csv: "intermediate/high_nll_sentences.csv"
@@ -38,7 +38,7 @@ steps:
     min_sentence_len: 10
 
   03_compute_word_nll:
-    enabled: false
+    enabled: true
     script: "scripts/03_compute_word_nll.py"
     input_csv: "intermediate/high_nll_sentences.csv"
     output_csv: "outputs/word_nll_details.csv"

@@ -108,7 +108,47 @@ def plot_top_suspicious_words(word_stats, output_dir, top_n=30, min_count=5, log
     if logger:
         logger.info(f"Top可疑词图已保存: {out_path}")
 
+# def aggregate_tokens_to_words(df, logger=None):
+#     if logger:
+#         logger.info("正在将 token 级 NLL 聚合为词级（使用 jieba）...")
+#     records = []
+#     for sent_id, group in df.groupby('sentence_id'):
+#         sentence = group['sentence'].iloc[0]
+#         token_rows = group[group['token_index'] > 0].sort_values('token_index')
+#         if token_rows.empty:
+#             continue
+#         tokens = token_rows['token'].tolist()
+#         nlls = token_rows['nll'].tolist()
+#         words = list(jieba.cut(sentence))
+#         idx = 0
+#         for w in words:
+#             length = len(w)
+#             if idx + length <= len(tokens):
+#                 word_nlls = nlls[idx:idx+length]
+#                 avg_nll = sum(word_nlls) / length if length > 0 else float('nan')
+#                 records.append({
+#                     'sentence_id': sent_id,
+#                     'word': w,
+#                     'avg_nll': avg_nll,
+#                     'sentence': sentence
+#                 })
+#                 idx += length
+#             else:
+#                 if logger:
+#                     logger.warning(f"句子 {sent_id} token 数量不足，部分词被忽略")
+#                 break
+#     result_df = pd.DataFrame(records)
+#     result_df['word'] = result_df['word'].astype(str)
+#     if logger:
+#         logger.info(f"聚合完成，共 {len(result_df)} 个词级记录")
+#     return result_df
+
 def aggregate_tokens_to_words(df, logger=None):
+    """
+    将字级 token 的 NLL 按 jieba 分词结果聚合为词级
+    df: 包含 token 级记录（列：sentence_id, token_index, token, nll, sentence）
+    返回：词级 DataFrame，列：sentence_id, word, avg_nll, sentence, word_index
+    """
     if logger:
         logger.info("正在将 token 级 NLL 聚合为词级（使用 jieba）...")
     records = []
@@ -121,6 +161,7 @@ def aggregate_tokens_to_words(df, logger=None):
         nlls = token_rows['nll'].tolist()
         words = list(jieba.cut(sentence))
         idx = 0
+        word_idx = 0  # 词内顺序索引
         for w in words:
             length = len(w)
             if idx + length <= len(tokens):
@@ -130,9 +171,11 @@ def aggregate_tokens_to_words(df, logger=None):
                     'sentence_id': sent_id,
                     'word': w,
                     'avg_nll': avg_nll,
-                    'sentence': sentence
+                    'sentence': sentence,
+                    'word_index': word_idx
                 })
                 idx += length
+                word_idx += 1
             else:
                 if logger:
                     logger.warning(f"句子 {sent_id} token 数量不足，部分词被忽略")
@@ -234,7 +277,12 @@ def main():
             df = token_df.rename(columns={'token': 'word', 'nll': 'avg_nll'})
             df = df[['sentence_id', 'word', 'avg_nll', 'sentence']]
             df['word'] = df['word'].astype(str)
-
+            # 为每个句子内的词添加顺序索引（从0开始）
+            df['word_index'] = df.groupby('sentence_id').cumcount()
+        
+        # 调整列顺序
+        df = df[['sentence_id', 'word_index', 'word', 'avg_nll', 'sentence']]
+        # 保存聚合后的词级数据
         agg_suffix = f"_sample_{int(sample_ratio*100)}" if sample_ratio < 1.0 else ""
         agg_filename = f"word_level_aggregated{agg_suffix}.csv"
         aggregated_csv = output_dir / agg_filename
