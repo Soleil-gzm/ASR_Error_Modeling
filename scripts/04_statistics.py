@@ -190,7 +190,16 @@ def main():
         logger.error("元数据中缺少步骤03的记录，请先运行步骤03")
         sys.exit(1)
 
-    word_nll_csv_rel = Path(metadata['03_compute_word_nll']['output_csv'])
+    # 从元数据获取步骤03的输出文件路径（适配新旧格式）
+    step3_info = metadata['03_compute_word_nll']
+    if 'output_csv' in step3_info:
+        word_nll_csv_rel = Path(step3_info['output_csv'])
+    elif 'latest' in step3_info and 'output_csv' in step3_info['latest']:
+        word_nll_csv_rel = Path(step3_info['latest']['output_csv'])
+    else:
+        logger.error("无法找到步骤03的输出文件路径，请检查 run_metadata.json")
+        sys.exit(1)
+
     project_root = base_dir.parent
     if word_nll_csv_rel.is_absolute():
         word_nll_csv = word_nll_csv_rel
