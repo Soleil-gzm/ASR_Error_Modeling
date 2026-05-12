@@ -20,7 +20,7 @@ from torch.utils.data import DataLoader, Dataset
 sys.path.insert(0, str(Path(__file__).parent.parent))
 from scripts.utils import setup_logger, load_model_and_tokenizer
 from scripts.utils.timer import TimedBlock, update_metadata_timing
-from scripts.utils import get_step_output, get_step_sample_ratio
+from scripts.utils.metadata import get_step_output, get_step_sample_ratio
 
 # ---------- 数据集与collate函数 ----------
 class WordNLLDataset(Dataset):

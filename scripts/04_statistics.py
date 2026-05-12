@@ -22,7 +22,7 @@ import jieba
 sys.path.insert(0, str(Path(__file__).parent.parent))
 from scripts.utils import setup_logger
 from scripts.utils.timer import TimedBlock, update_metadata_timing
-from scripts.utils import get_step_output, get_step_sample_ratio
+from scripts.utils.metadata import get_step_output, get_step_sample_ratio
 
 import matplotlib
 matplotlib.use('Agg')
