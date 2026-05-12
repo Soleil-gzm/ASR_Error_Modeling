@@ -15,6 +15,7 @@ import pandas as pd
 sys.path.insert(0, str(Path(__file__).parent.parent))
 from scripts.utils import setup_logger
 from scripts.utils.timer import TimedBlock, update_metadata_timing
+from scripts.utils import get_step_output, get_step_sample_ratio
 
 def main():
     parser = argparse.ArgumentParser()
@@ -28,7 +29,6 @@ def main():
 
     step_cfg = config['steps']['02_filter_high_nll']
 
-    # 日志设置
     log_dir = task_dir / "logs"
     logger = setup_logger(log_dir, "02_filter_high_nll")
 
@@ -45,27 +45,16 @@ def main():
         logger.error("元数据中缺少步骤01的记录，请重新运行步骤01")
         sys.exit(1)
 
-    # # 步骤01的输出路径（元数据中存的是相对于项目根目录的路径）
-    # input_csv_rel = Path(metadata['01_compute_sentence_nll']['output_csv'])
-    # 步骤01的输出路径（元数据中存的是相对于项目根目录的路径）
-    step1_info = metadata['01_compute_sentence_nll']
-    if 'output_csv' in step1_info:
-        input_csv_rel = Path(step1_info['output_csv'])
-    elif 'latest' in step1_info and 'output_csv' in step1_info['latest']:
-        input_csv_rel = Path(step1_info['latest']['output_csv'])
-    else:
+    # 使用辅助函数获取步骤01的输出路径
+    output_csv_rel = get_step_output(metadata, '01_compute_sentence_nll')
+    if output_csv_rel is None:
         logger.error("无法找到步骤01的输出文件路径，请检查 run_metadata.json")
         sys.exit(1)
     project_root = base_dir.parent
-    if input_csv_rel.is_absolute():
-        input_csv = input_csv_rel
-    else:
-        input_csv = project_root / input_csv_rel
+    input_csv = project_root / Path(output_csv_rel) if not Path(output_csv_rel).is_absolute() else Path(output_csv_rel)
 
-    sample_ratio = metadata['01_compute_sentence_nll'].get('sample_ratio', 1.0)
-    # 如果 sample_ratio 不存在，尝试从 latest 中获取
-    if 'sample_ratio' not in metadata['01_compute_sentence_nll'] and 'latest' in metadata['01_compute_sentence_nll']:
-        sample_ratio = metadata['01_compute_sentence_nll']['latest'].get('sample_ratio', 1.0)
+    # 使用辅助函数获取采样比例
+    sample_ratio = get_step_sample_ratio(metadata, '01_compute_sentence_nll')
 
     # 输出文件路径：基于 task_dir 构建
     output_csv = Path(step_cfg.get('output_csv', 'intermediate/high_nll_sentences.csv'))

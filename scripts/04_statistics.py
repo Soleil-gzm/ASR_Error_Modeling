@@ -22,26 +22,24 @@ import jieba
 sys.path.insert(0, str(Path(__file__).parent.parent))
 from scripts.utils import setup_logger
 from scripts.utils.timer import TimedBlock, update_metadata_timing
+from scripts.utils import get_step_output, get_step_sample_ratio
 
 import matplotlib
 matplotlib.use('Agg')
 import matplotlib.font_manager as fm
 
 # --- 中文字体配置（稳健版）---
-# 方法1：尝试直接设置已知中文字体名（优先）
 try:
     plt.rcParams['font.sans-serif'] = ['WenQuanYi Zen Hei', 'Noto Sans CJK SC', 'SimHei']
     plt.rcParams['axes.unicode_minus'] = False
-    # 测试字体是否可用
     fig, ax = plt.subplots()
     ax.set_title('测试')
     plt.close(fig)
 except:
-    # 方法2：手动添加字体文件路径
     font_paths = [
         '/usr/share/fonts/truetype/wqy/wqy-zenhei.ttc',
         '/usr/share/fonts/opentype/noto/NotoSansCJK-Regular.ttc',
-        '/System/Library/Fonts/PingFang.ttc'  # macOS
+        '/System/Library/Fonts/PingFang.ttc'
     ]
     added = False
     for path in font_paths:
@@ -54,13 +52,9 @@ except:
     if not added:
         print("警告：未找到中文字体，图表将无法显示中文")
     plt.rcParams['axes.unicode_minus'] = False
-# --- 配置结束 ---
 
 # ------------------------------------------------------------
-# 辅助函数
-# ------------------------------------------------------------
 def classify_error(token):
-    """分类错误类型，token 可能为字符串或数值，需先处理"""
     if not isinstance(token, str):
         return "其他"
     if token.isdigit():
@@ -95,7 +89,6 @@ def plot_nll_distribution(df, output_dir, logger):
     logger.info(f"分布图已保存: {out_path}")
 
 def plot_top_suspicious_words(word_stats, output_dir, top_n=30, min_count=5, logger=None):
-    """word_stats: list of (word, avg_nll, count)"""
     filtered = [(w, avg, cnt) for w, avg, cnt in word_stats if cnt >= min_count]
     filtered.sort(key=lambda x: x[1], reverse=True)
     top = filtered[:top_n]
@@ -115,15 +108,7 @@ def plot_top_suspicious_words(word_stats, output_dir, top_n=30, min_count=5, log
     if logger:
         logger.info(f"Top可疑词图已保存: {out_path}")
 
-# ------------------------------------------------------------
-# 词级聚合函数（用于 GPT-2 等字级模型）
-# ------------------------------------------------------------
 def aggregate_tokens_to_words(df, logger=None):
-    """
-    将字级 token 的 NLL 按 jieba 分词结果聚合为词级
-    df: 包含 token 级记录（列：sentence_id, token_index, token, nll, sentence）
-    返回：词级 DataFrame，列：sentence_id, word, avg_nll, sentence
-    """
     if logger:
         logger.info("正在将 token 级 NLL 聚合为词级（使用 jieba）...")
     records = []
@@ -153,15 +138,11 @@ def aggregate_tokens_to_words(df, logger=None):
                     logger.warning(f"句子 {sent_id} token 数量不足，部分词被忽略")
                 break
     result_df = pd.DataFrame(records)
-    # 确保 word 列是字符串类型
     result_df['word'] = result_df['word'].astype(str)
     if logger:
         logger.info(f"聚合完成，共 {len(result_df)} 个词级记录")
     return result_df
 
-# ------------------------------------------------------------
-# 主函数
-# ------------------------------------------------------------
 def main():
     parser = argparse.ArgumentParser()
     parser.add_argument("--config_json", type=str, required=True)
@@ -190,47 +171,27 @@ def main():
         logger.error("元数据中缺少步骤03的记录，请先运行步骤03")
         sys.exit(1)
 
-    # 从元数据获取步骤03的输出文件路径（适配新旧格式）
-    step3_info = metadata['03_compute_word_nll']
-    if 'output_csv' in step3_info:
-        word_nll_csv_rel = Path(step3_info['output_csv'])
-    elif 'latest' in step3_info and 'output_csv' in step3_info['latest']:
-        word_nll_csv_rel = Path(step3_info['latest']['output_csv'])
-    else:
-        logger.error("无法找到步骤03的输出文件路径，请检查 run_metadata.json")
+    # 使用辅助函数获取步骤03的输出路径
+    output_csv_rel = get_step_output(metadata, '03_compute_word_nll')
+    if output_csv_rel is None:
+        logger.error("无法找到步骤03的输出文件路径")
         sys.exit(1)
-
     project_root = base_dir.parent
-    if word_nll_csv_rel.is_absolute():
-        word_nll_csv = word_nll_csv_rel
-    else:
-        word_nll_csv = project_root / word_nll_csv_rel
+    word_nll_csv = project_root / Path(output_csv_rel) if not Path(output_csv_rel).is_absolute() else Path(output_csv_rel)
 
+    # 获取模型名称
     model_name = metadata.get('03_compute_word_nll', {}).get('model_name', '')
+    # 获取采样比例
+    sample_ratio = get_step_sample_ratio(metadata, '01_compute_sentence_nll')
 
-    # 从步骤01的元数据中获取采样比例（适配新旧格式）
-    step1_info = metadata.get('01_compute_sentence_nll', {})
-    if 'sample_ratio' in step1_info:
-        sample_ratio = step1_info['sample_ratio']
-    elif 'latest' in step1_info and 'sample_ratio' in step1_info['latest']:
-        sample_ratio = step1_info['latest']['sample_ratio']
-    else:
-        sample_ratio = 1.0
-
+    # 句子级NLL文件（可选，用于绘图）
     sentence_nll_csv = None
     if '01_compute_sentence_nll' in metadata:
-        step1_info = metadata['01_compute_sentence_nll']
-        if 'output_csv' in step1_info:
-            sent_rel = Path(step1_info['output_csv'])
-        elif 'latest' in step1_info and 'output_csv' in step1_info['latest']:
-            sent_rel = Path(step1_info['latest']['output_csv'])
-        else:
-            sent_rel = None
+        sent_rel = get_step_output(metadata, '01_compute_sentence_nll')
         if sent_rel:
-            if sent_rel.is_absolute():
-                sentence_nll_csv = sent_rel
-            else:
-                sentence_nll_csv = project_root / sent_rel
+            sent_path = project_root / Path(sent_rel) if not Path(sent_rel).is_absolute() else Path(sent_rel)
+            if sent_path.exists():
+                sentence_nll_csv = sent_path
 
     output_dir = Path(step_cfg.get('output_dir', 'outputs/report'))
     if not output_dir.is_absolute():
@@ -272,10 +233,8 @@ def main():
             logger.info("模型 token 已是词级别，直接使用 token 作为词")
             df = token_df.rename(columns={'token': 'word', 'nll': 'avg_nll'})
             df = df[['sentence_id', 'word', 'avg_nll', 'sentence']]
-            # 确保 word 列是字符串（消除可能的浮点数）
             df['word'] = df['word'].astype(str)
-            
-        # 保存聚合后的词级数据（方便后续使用）
+
         agg_suffix = f"_sample_{int(sample_ratio*100)}" if sample_ratio < 1.0 else ""
         agg_filename = f"word_level_aggregated{agg_suffix}.csv"
         aggregated_csv = output_dir / agg_filename
@@ -298,7 +257,6 @@ def main():
         logger.info(f"总词数: {total_words}")
         logger.info(f"平均NLL: {avg_nll_all:.4f}, 中位数: {median_nll:.4f}, 95分位数: {high_thresh:.4f}")
 
-        # 统计每个词的平均NLL和出现次数
         word_groups = df.groupby('word')['avg_nll'].agg(['mean', 'count']).reset_index()
         word_groups.columns = ['word', 'avg_nll', 'count']
         word_groups = word_groups[word_groups['count'] >= min_occurrence]
@@ -306,7 +264,6 @@ def main():
         word_stats = word_groups[['word', 'avg_nll', 'count']].values.tolist()
         top_words = word_groups.head(top_k)
 
-        # 错误类别分类（确保 word 是字符串）
         error_categories = defaultdict(lambda: {"count": 0, "total_nll": 0.0})
         for _, row in df.iterrows():
             word = row['word']
@@ -381,7 +338,6 @@ def main():
     logger.info(f"报告已保存至 {output_dir}")
     logger.info(f"总耗时: {timing['total_sec']:.2f}s")
 
-    # 计时历史追加
     current_timing = {
         "timestamp": datetime.now().isoformat(),
         "read_token_csv_sec": timing.get("read_token_csv", 0),
@@ -404,7 +360,6 @@ def main():
     }
     update_metadata_timing(metadata_path, "04_statistics", current_timing, latest_info)
 
-    # 重新加载元数据更新常规字段
     with open(metadata_path, 'r') as f:
         metadata = json.load(f)
     if '04_statistics' not in metadata:

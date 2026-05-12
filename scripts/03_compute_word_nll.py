@@ -20,10 +20,10 @@ from torch.utils.data import DataLoader, Dataset
 sys.path.insert(0, str(Path(__file__).parent.parent))
 from scripts.utils import setup_logger, load_model_and_tokenizer
 from scripts.utils.timer import TimedBlock, update_metadata_timing
+from scripts.utils import get_step_output, get_step_sample_ratio
 
 # ---------- 数据集与collate函数 ----------
 class WordNLLDataset(Dataset):
-    """自定义数据集，存储句子列表，用于 DataLoader 批处理"""
     def __init__(self, sentences, ids):
         self.sentences = sentences
         self.ids = ids
@@ -33,9 +33,6 @@ class WordNLLDataset(Dataset):
         return self.sentences[idx], self.ids[idx]
 
 def collate_word_nll(batch, tokenizer, max_length):
-    """
-    自定义批处理函数：对 batch 内的句子进行 padding，返回 input_ids, attention_mask, 原始句子和 ids
-    """
     sentences, ids = zip(*batch)
     enc = tokenizer(
         list(sentences),
@@ -47,10 +44,6 @@ def collate_word_nll(batch, tokenizer, max_length):
     return enc['input_ids'], enc['attention_mask'], sentences, ids
 
 def compute_word_nll_batch(model, tokenizer, sentences, ids, max_length, batch_size, device):
-    """
-    批处理计算每个句子的 token 级 NLL
-    返回：字典 {id: (token_list, nll_list)} 和每个句子的整体平均 NLL (可选)
-    """
     dataset = WordNLLDataset(sentences, ids)
     collate_fn = lambda b: collate_word_nll(b, tokenizer, max_length)
     dataloader = DataLoader(dataset, batch_size=batch_size, shuffle=False,
@@ -58,7 +51,7 @@ def compute_word_nll_batch(model, tokenizer, sentences, ids, max_length, batch_s
     model.eval()
     result_tokens = {}
     result_nlls = {}
-    all_seq_nll = []   # 句子平均 NLL
+    all_seq_nll = []
     with torch.no_grad():
         for input_ids, attention_mask, orig_sentences, orig_ids in tqdm(dataloader, desc="批处理词级NLL"):
             input_ids = input_ids.to(device)
@@ -69,16 +62,14 @@ def compute_word_nll_batch(model, tokenizer, sentences, ids, max_length, batch_s
             shift_labels = input_ids[:, 1:].contiguous()
             loss_fct = torch.nn.CrossEntropyLoss(reduction='none')
             token_nll = loss_fct(shift_logits.view(-1, shift_logits.size(-1)), shift_labels.view(-1))
-            token_nll = token_nll.view(shift_labels.size())  # (batch, seq_len-1)
-
+            token_nll = token_nll.view(shift_labels.size())
             for i in range(input_ids.size(0)):
                 real_len = attention_mask[i].sum().item()
                 if real_len <= 1:
                     continue
                 nll_values = token_nll[i, :real_len-1].cpu().tolist()
-                token_ids = input_ids[i, 1:real_len].cpu().tolist()  # 跳过第一个特殊 token
+                token_ids = input_ids[i, 1:real_len].cpu().tolist()
                 token_strs = [tokenizer.decode([tid], skip_special_tokens=False).strip() for tid in token_ids]
-                # 处理空字符串或 bytes（兼容 Qwen）
                 for j, ts in enumerate(token_strs):
                     if not ts:
                         alt = tokenizer.convert_ids_to_tokens(token_ids[j])
@@ -92,7 +83,6 @@ def compute_word_nll_batch(model, tokenizer, sentences, ids, max_length, batch_s
                 all_seq_nll.append((sid, avg_seq_nll))
     return result_tokens, result_nlls, all_seq_nll
 
-# ---------- 主函数 ----------
 def main():
     parser = argparse.ArgumentParser()
     parser.add_argument("--config_json", type=str, required=True)
@@ -120,27 +110,16 @@ def main():
         logger.error("缺少步骤02的记录，请先运行步骤02")
         sys.exit(1)
 
-    # 从元数据获取步骤02的输出文件路径（适配新旧格式）
-    step2_info = metadata['02_filter_high_nll']
-    if 'output_csv' in step2_info:
-        input_csv_rel = Path(step2_info['output_csv'])
-    elif 'latest' in step2_info and 'output_csv' in step2_info['latest']:
-        input_csv_rel = Path(step2_info['latest']['output_csv'])
-    else:
-        logger.error("无法找到步骤02的输出文件路径，请检查 run_metadata.json")
+    # 使用辅助函数获取步骤02的输出路径
+    output_csv_rel = get_step_output(metadata, '02_filter_high_nll')
+    if output_csv_rel is None:
+        logger.error("无法找到步骤02的输出文件路径")
         sys.exit(1)
-
     project_root = base_dir.parent
-    input_csv = project_root / input_csv_rel if not input_csv_rel.is_absolute() else input_csv_rel
+    input_csv = project_root / Path(output_csv_rel) if not Path(output_csv_rel).is_absolute() else Path(output_csv_rel)
 
-    # 从步骤01的元数据中获取采样比例（适配新旧格式）
-    step1_info = metadata.get('01_compute_sentence_nll', {})
-    if 'sample_ratio' in step1_info:
-        sample_ratio = step1_info['sample_ratio']
-    elif 'latest' in step1_info and 'sample_ratio' in step1_info['latest']:
-        sample_ratio = step1_info['latest']['sample_ratio']
-    else:
-        sample_ratio = 1.0
+    # 使用辅助函数获取采样比例
+    sample_ratio = get_step_sample_ratio(metadata, '01_compute_sentence_nll')
 
     output_csv = Path(step_cfg.get('output_csv', 'outputs/word_nll_details.csv'))
     if not output_csv.is_absolute():
@@ -227,7 +206,6 @@ def main():
         "max_seq_len": max_seq_len
     }
 
-    # 最新一次运行的关键信息
     latest_info = {
         "input_csv": str(input_csv),
         "output_csv": str(output_csv),
@@ -241,14 +219,11 @@ def main():
         "timestamp": datetime.now().isoformat()
     }
 
-    # 更新元数据（历史追加）
     update_metadata_timing(metadata_path, "03_compute_word_nll", current_timing, latest_info)
 
-    # 重新加载元数据，确保有 '03_compute_word_nll' 键
     with open(metadata_path, 'r') as f:
         metadata = json.load(f)
 
-    # 确保键存在再更新
     if '03_compute_word_nll' not in metadata:
         metadata['03_compute_word_nll'] = {}
     metadata['03_compute_word_nll'].update({
