@@ -36,7 +36,7 @@ asr_error_analysis/
 │       ├── ...
 │       ├── run_metadata.json           # 记录本次运行的参数、时间戳
 │       ├── intermediate/               # 中间结果（可删）
-│       │   ├── all_sentences.csv
+│       │   ├── all_sentences.csv 
 │       │   ├── sentence_nll.csv
 │       │   └── high_nll_sentences.csv
 │       └── outputs/                    # 最终输出（带时间戳子目录）
@@ -48,5 +48,7 @@ asr_error_analysis/
 └── tests/                              # 单元测试
 
 # 下一步
+
+先清理出来没有英文的数据出来。
 
 根据突然升高的nll值，找到前面的词，建立匹配，得到噪音替换的词表，建立针对当前语言模型的噪声添加词表
