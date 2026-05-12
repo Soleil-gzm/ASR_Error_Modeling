@@ -207,7 +207,15 @@ def main():
         word_nll_csv = project_root / word_nll_csv_rel
 
     model_name = metadata.get('03_compute_word_nll', {}).get('model_name', '')
-    sample_ratio = metadata.get('01_compute_sentence_nll', {}).get('sample_ratio', 1.0)
+
+    # 从步骤01的元数据中获取采样比例（适配新旧格式）
+    step1_info = metadata.get('01_compute_sentence_nll', {})
+    if 'sample_ratio' in step1_info:
+        sample_ratio = step1_info['sample_ratio']
+    elif 'latest' in step1_info and 'sample_ratio' in step1_info['latest']:
+        sample_ratio = step1_info['latest']['sample_ratio']
+    else:
+        sample_ratio = 1.0
 
     sentence_nll_csv = None
     if '01_compute_sentence_nll' in metadata:
