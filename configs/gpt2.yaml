@@ -1,9 +1,9 @@
-task_name: "datas_gpt2_sample_20"
+task_name: "test_gpt2_sample_10_pt"
 resume: false
 
 paths:
   input:
-    raw_data_dir: "./datas"
+    raw_data_dir: "./datas_original"
   output:
     base_dir: "./work"
 
@@ -48,7 +48,7 @@ steps:
     gpu_ids: [7]          # 只使用一张卡
 
   04_statistics:
-    enabled: true
+    enabled: false
     script: "scripts/04_statistics.py"
     input_word_csv: "outputs/word_nll_details.csv"
     input_sentence_csv: "intermediate/sentence_nll.csv"
@@ -62,4 +62,4 @@ steps:
     enabled: true
     script: "scripts/05_extract_noise_words.py"
     prev_window: 1
-    nll_threshold_percentile: 95
+    threshold_percentile: 80

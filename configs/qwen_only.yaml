@@ -1,9 +1,9 @@
-task_name: "Qwen_sample_20"
+task_name: "test_Qwen_pt"
 resume: false
 
 paths:
   input:
-    raw_data_dir: "./datas"
+    raw_data_dir: "./datas_original"
   output:
     base_dir: "./work"
 
@@ -17,7 +17,7 @@ steps:
     split_by_punct: false
 
   01_compute_sentence_nll:
-    enabled: false
+    enabled: true
     script: "scripts/01_compute_sentence_nll.py"
     input_csv: "intermediate/all_sentences.csv"
     output_csv: "intermediate/sentence_nll.csv"
@@ -30,7 +30,7 @@ steps:
     sample_seed: 42        # 随机种子，保证每次采样一致
 
   02_filter_high_nll:
-    enabled: false
+    enabled: true
     script: "scripts/02_filter_high_nll.py"
     input_csv: "intermediate/sentence_nll.csv"
     output_csv: "intermediate/high_nll_sentences.csv"
@@ -38,7 +38,7 @@ steps:
     min_sentence_len: 10
 
   03_compute_word_nll:
-    enabled: false
+    enabled: true
     script: "scripts/03_compute_word_nll.py"
     input_csv: "intermediate/high_nll_sentences.csv"
     output_csv: "outputs/word_nll_details.csv"
@@ -48,7 +48,7 @@ steps:
     gpu_ids: [7]          # 只使用一张卡
 
   04_statistics:
-    enabled: false
+    enabled: true
     script: "scripts/04_statistics.py"
     input_word_csv: "outputs/word_nll_details.csv"
     input_sentence_csv: "intermediate/sentence_nll.csv"
@@ -61,5 +61,4 @@ steps:
     enabled: true
     script: "scripts/05_extract_noise_words.py"
     prev_window: 3
-    # nll_threshold_percentile: 90
     threshold_percentile: 80
