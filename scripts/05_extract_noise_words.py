@@ -5,6 +5,7 @@
   - noise_pairs.csv: 每个前驱词单独成对 (prev_word, abnormal_word)
   - noise_pairs_phrase.csv: 将前 prev_window 个词拼接成短语 (prev_phrase, abnormal_word)
 支持配置前文窗口大小（prev_window: 1 或 2）
+输出目录按 prev_window 隔离，避免覆盖。
 包含计时和元数据记录
 """
 
@@ -51,15 +52,19 @@ def main():
         sys.exit(1)
     report_dir = project_root / Path(step4_output_dir_rel)
     # 输出目录改为 report_dir 的父目录（即 outputs/sample_20_analysis/）
-    output_dir = report_dir.parent
-    logger.info(f"步骤04报告目录: {report_dir}")
-    logger.info(f"噪声文件输出目录: {output_dir}")
+    base_output_dir = report_dir.parent
 
     # 从配置文件读取参数
     step_cfg = config['steps'].get('05_extract_noise_words', {})
     prev_window = step_cfg.get('prev_window', 1)
     # 兼容两种键名
     threshold_percentile = step_cfg.get('threshold_percentile', step_cfg.get('nll_threshold_percentile', 95))
+
+    # 根据 prev_window 创建子目录，避免覆盖
+    output_dir = base_output_dir / f"prev_window_{prev_window}"
+    output_dir.mkdir(parents=True, exist_ok=True)
+    logger.info(f"步骤04报告目录: {report_dir}")
+    logger.info(f"噪声文件输出目录: {output_dir}")
 
     total_start = time.perf_counter()
     timing = {}
