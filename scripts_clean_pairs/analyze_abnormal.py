@@ -1,86 +1,73 @@
 #!/usr/bin/env python3
 """
-分析词对/短语对文件：按 abnormal_word 分组，统计每个前词/短语的出现次数
-自动检测列名（支持 prev_word / prev_phrase）
-用法: python analyze_pairs.py <input.csv>
-输出: abnormal_word_summary.csv, abnormal_word_details.csv
+按异常词统计前置词分布，支持过滤低频和前置词种类数
+输出格式: abnormal_word, total_occurrences, unique_prev, prev_words
+用法:
+    python analyze_abnormal_filter.py --input <noise_pairs.csv> --output <输出目录> --min_total <阈值> --min_unique_prev <阈值>
 """
 
 import pandas as pd
-from collections import Counter
-import sys
+import argparse
 from pathlib import Path
 
-def detect_prev_column(df):
-    """自动检测前置词/短语的列名"""
-    possible_cols = ['prev_word', 'prev_phrase', 'prev', 'phrase']
-    for col in possible_cols:
-        if col in df.columns:
-            return col
-    # 如果都不匹配，尝试使用第一列（但需排除 abnormal_word）
-    for col in df.columns:
-        if col != 'abnormal_word':
-            return col
-    raise ValueError("无法自动检测前置词/短语列，请确保列名为 'prev_word' 或 'prev_phrase'")
+def main():
+    # ================== 可修改的硬编码默认值 ==================
+    DEFAULT_INPUT = "work/test_gpt2_sample_10_pt/outputs/sample_20_analysis/prev_window_1/noise_pairs.csv"
+    DEFAULT_OUTPUT = "work/test_gpt2_sample_10_pt/outputs/sample_20_analysis/abnormal_clean"
+    DEFAULT_MIN_TOTAL = 2          # 只保留异常词总出现次数≥2
+    DEFAULT_MIN_UNIQUE_PREV = 1    # 默认不按前置词种类过滤（1表示至少1种）
+    # ========================================================
 
-def analyze_pairs(csv_path, output_dir):
-    df = pd.read_csv(csv_path)
-    print(f"加载 {len(df)} 条记录")
+    parser = argparse.ArgumentParser(description="按异常词统计前置词分布")
+    parser.add_argument("--input", type=str, default=DEFAULT_INPUT,
+                        help=f"输入的CSV文件路径（默认: {DEFAULT_INPUT}）")
+    parser.add_argument("--output", type=str, default=DEFAULT_OUTPUT,
+                        help=f"输出目录（默认: {DEFAULT_OUTPUT}）")
+    parser.add_argument("--min_total", type=int, default=DEFAULT_MIN_TOTAL,
+                        help=f"异常词最小总出现次数（默认: {DEFAULT_MIN_TOTAL}）")
+    parser.add_argument("--min_unique_prev", type=int, default=DEFAULT_MIN_UNIQUE_PREV,
+                        help=f"前置词最小种类数（默认: {DEFAULT_MIN_UNIQUE_PREV}）")
+    args = parser.parse_args()
 
-    # 检查必需列
-    if 'abnormal_word' not in df.columns:
-        raise ValueError("文件缺少 'abnormal_word' 列")
-    prev_col = detect_prev_column(df)
-    print(f"检测到前置词列: {prev_col}")
+    input_path = Path(args.input)
+    output_dir = Path(args.output)
+    output_dir.mkdir(parents=True, exist_ok=True)
 
-    # 分组统计
-    grouped = df.groupby('abnormal_word')[prev_col].agg(list).reset_index()
-    grouped.columns = ['abnormal_word', 'prev_list']
+    print(f"读取文件: {input_path}")
+    df = pd.read_csv(input_path)
+    print(f"原始词对数量: {len(df)}")
 
-    summary = []
-    details = []
-    for _, row in grouped.iterrows():
-        word = row['abnormal_word']
-        prev_items = row['prev_list']
-        counter = Counter(prev_items)
-        total = len(prev_items)
-        unique = len(counter)
-        top5 = counter.most_common(5)
-        summary.append({
-            'abnormal_word': word,
-            'total_occurrences': total,
-            'unique_prev': unique,
-            'top_prev': str(top5)[:200]  # 限制长度
-        })
-        for item, cnt in counter.items():
-            details.append({
-                'abnormal_word': word,
-                prev_col: item,
-                'count': cnt
-            })
+    # 检查列名
+    if 'prev_word' not in df.columns or 'abnormal_word' not in df.columns:
+        raise ValueError("CSV文件必须包含 'prev_word' 和 'abnormal_word' 列")
 
-    summary_df = pd.DataFrame(summary)
-    details_df = pd.DataFrame(details)
+    # 按异常词分组聚合
+    grouped = df.groupby('abnormal_word').agg(
+        total_occurrences=('prev_word', 'count'),
+        unique_prev=('prev_word', 'nunique'),
+        prev_words=('prev_word', lambda x: ' '.join(set(x)))   # 去重后的前置词，用空格分隔
+    ).reset_index()
 
-    summary_path = output_dir / 'abnormal_word_summary.csv'
-    details_path = output_dir / 'abnormal_word_details.csv'
-    summary_df.to_csv(summary_path, index=False, encoding='utf-8')
-    details_df.to_csv(details_path, index=False, encoding='utf-8')
-    print(f"汇总表保存至 {summary_path}")
-    print(f"详情表保存至 {details_path}")
+    # 过滤总出现次数
+    before_total = len(grouped)
+    grouped = grouped[grouped['total_occurrences'] >= args.min_total]
+    print(f"按总出现次数过滤后剩余异常词数量: {len(grouped)} (要求 ≥ {args.min_total})")
 
-    # 打印前10个高频异常词
-    top = summary_df.nlargest(10, 'total_occurrences')[['abnormal_word', 'total_occurrences', 'unique_prev']]
-    print("\nTop 10 异常词（按总出现次数）:")
-    print(top.to_string(index=False))
+    # 过滤前置词种类数
+    grouped = grouped[grouped['unique_prev'] >= args.min_unique_prev]
+    print(f"按前置词种类数过滤后剩余异常词数量: {len(grouped)} (要求 unique_prev ≥ {args.min_unique_prev})")
 
-if __name__ == '__main__':
-    if len(sys.argv) != 2:
-        print("用法: python analyze_pairs.py <input.csv>")
-        sys.exit(1)
-    csv_file = Path(sys.argv[1])
-    if not csv_file.exists():
-        print(f"文件不存在: {csv_file}")
-        sys.exit(1)
-    output_dir = csv_file.parent
-    analyze_pairs(csv_file, output_dir)
+    # 按总出现次数降序排序
+    grouped = grouped.sort_values('total_occurrences', ascending=False)
+
+    # 输出到CSV
+    output_file = output_dir / "abnormal_clean_summary.csv"
+    grouped.to_csv(output_file, index=False, encoding='utf-8')
+    print(f"结果已保存至: {output_file}")
+
+    # 打印前10行预览
+    print("\n前10个异常词统计:")
+    print(grouped.head(10).to_string(index=False))
+
+if __name__ == "__main__":
+    main()
