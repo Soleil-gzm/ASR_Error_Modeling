@@ -1,8 +1,11 @@
 #!/usr/bin/env python3
 """
 过滤低频词对，生成前置词统计表（prev_word, total_occurrences, unique_abnormal, abnormal_words）
+支持：
+   - 根据词对频次过滤（min_count）
+   - 根据前置词对应的异常词种类数过滤（min_unique_abnormal）
 用法:
-    python filter_pairs.py --input <噪声对文件> --output <输出目录> --min_count <阈值>
+    python filter_pairs.py --input <噪声对文件> --output <输出目录> --min_count <阈值> --min_unique_abnormal <阈值>
 默认硬编码可自行修改。
 """
 
@@ -12,9 +15,10 @@ from pathlib import Path
 
 def main():
     # ================== 可修改的硬编码默认值 ==================
-    DEFAULT_INPUT = "work/test_gpt2_sample_10_pt/outputs/sample_10_analysis/noise_pairs.csv"
-    DEFAULT_OUTPUT = "work/test_gpt2_sample_10_pt/outputs/sample_10_analysisprev_clean"
-    DEFAULT_MIN_COUNT = 2   # 只保留出现次数≥2的词对
+    DEFAULT_INPUT = "work/test_gpt2_sample_10_pt/outputs/sample_20_analysis/prev_window_1/noise_pairs.csv"
+    DEFAULT_OUTPUT = "work/test_gpt2_sample_10_pt/outputs/sample_20_analysis/prev_clean"
+    DEFAULT_MIN_COUNT = 2           # 只保留出现次数≥2的词对
+    DEFAULT_MIN_UNIQUE_ABNORMAL = 2 # 默认不按异常词种类过滤（1表示至少1种）
     # ========================================================
 
     parser = argparse.ArgumentParser(description="从noise_pairs.csv中过滤低频词对，生成前置词统计")
@@ -24,6 +28,8 @@ def main():
                         help=f"输出目录（默认: {DEFAULT_OUTPUT}）")
     parser.add_argument("--min_count", type=int, default=DEFAULT_MIN_COUNT,
                         help=f"最小频次阈值，保留出现次数≥该值的词对（默认: {DEFAULT_MIN_COUNT}）")
+    parser.add_argument("--min_unique_abnormal", type=int, default=DEFAULT_MIN_UNIQUE_ABNORMAL,
+                        help=f"最小异常词种类数，保留前置词对应的不同异常词数量≥该值（默认: {DEFAULT_MIN_UNIQUE_ABNORMAL}，设为1则不过滤）")
     args = parser.parse_args()
 
     input_path = Path(args.input)
@@ -50,6 +56,11 @@ def main():
         unique_abnormal=('abnormal_word', 'nunique'),
         abnormal_words=('abnormal_word', lambda x: ' '.join(x))
     ).reset_index()
+
+    # 按 unique_abnormal 过滤
+    before_unique = len(grouped)
+    grouped = grouped[grouped['unique_abnormal'] >= args.min_unique_abnormal]
+    print(f"按异常词种类数过滤后剩余前置词数量: {len(grouped)} (要求 unique_abnormal ≥ {args.min_unique_abnormal})")
 
     # 按总出现次数降序排序
     grouped = grouped.sort_values('total_occurrences', ascending=False)
