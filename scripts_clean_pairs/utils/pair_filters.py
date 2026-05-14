@@ -25,48 +25,6 @@ def filter_by_min_count(df: pd.DataFrame, min_count: int) -> pd.DataFrame:
     pair_counts = df.groupby(['prev_word', 'abnormal_word']).size().reset_index(name='count')
     return pair_counts[pair_counts['count'] >= min_count]
 
-# def aggregate_by_prev(df: pd.DataFrame, with_prob: bool = True) -> pd.DataFrame:
-#     """
-#     按前置词聚合，生成统计表
-#     df 必须包含 count 列（由 filter_by_min_count 生成）
-#     with_prob: 是否在 abnormal_words 列中附加概率（默认 True）
-#     """
-#     if 'count' not in df.columns:
-#         # 如果传入的是原始词对而非频次表，先进行统计
-#         df = df.groupby(['prev_word', 'abnormal_word']).size().reset_index(name='count')
-    
-#     # 按前置词分组聚合
-#     grouped = df.groupby('prev_word').agg(
-#         total_occurrences=('count', 'sum'),
-#         unique_abnormal=('abnormal_word', 'nunique'),
-#         counts_list=('count', list),
-#         words_list=('abnormal_word', list)
-#     ).reset_index()
-    
-#     if with_prob:
-#         # 为每个前置词生成带概率的异常词字符串
-#         def format_with_prob(words, counts):
-#             total = sum(counts)
-#             formatted = []
-#             for w, c in zip(words, counts):
-#                 prob = c / total
-#                 formatted.append(f"{w}({prob:.3f})")
-#             return ' '.join(formatted)
-        
-#         grouped['abnormal_words'] = grouped.apply(
-#             lambda row: format_with_prob(row['words_list'], row['counts_list']), axis=1
-#         )
-#         # 删除辅助列
-#         grouped = grouped.drop(columns=['counts_list', 'words_list'])
-#     else:
-#         # 不计算概率时，只拼接异常词
-#         grouped['abnormal_words'] = grouped.apply(
-#             lambda row: ' '.join(row['words_list']), axis=1
-#         )
-#         grouped = grouped.drop(columns=['counts_list', 'words_list'])
-    
-#     return grouped.sort_values('total_occurrences', ascending=False)
-
 def aggregate_by_prev(df: pd.DataFrame, with_prob: bool = True) -> pd.DataFrame:
     """
     按前置词聚合，生成统计表
