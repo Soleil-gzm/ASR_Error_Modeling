@@ -5,6 +5,7 @@
    - 根据词对频次过滤（min_count）
    - 根据前置词对应的异常词种类数过滤（min_unique_abnormal）
    - 可选：过滤掉前后都是纯数字的词对
+   - 异常词后自动附加出现概率（括号内小数）
 用法:
     python filter_pairs.py --input <噪声对文件> --output <输出目录> [--min_count 2] [--min_unique_abnormal 2] [--drop_digit_pairs]
 """
@@ -54,8 +55,8 @@ def main():
     df_counts = filter_by_min_count(df, args.min_count)
     print(f"频次过滤后唯一词对数量: {len(df_counts)} (要求出现≥{args.min_count})")
 
-    # 3. 按前置词聚合
-    grouped = aggregate_by_prev(df_counts)
+    # 3. 按前置词聚合（自动附加概率）
+    grouped = aggregate_by_prev(df_counts, with_prob=True)
 
     # 4. 按异常词种类过滤
     before = len(grouped)
