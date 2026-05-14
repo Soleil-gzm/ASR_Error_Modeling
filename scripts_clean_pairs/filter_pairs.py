@@ -5,20 +5,27 @@
    - 根据词对频次过滤（min_count）
    - 根据前置词对应的异常词种类数过滤（min_unique_abnormal）
    - 可选：过滤掉前后都是纯数字的词对
-   - 异常词后自动附加出现概率（括号内小数）
+   - 异常词后自动附加出现概率（括号内小数），并按概率降序排列
+   - 统一日志输出，终端只显示关键信息
 用法:
     python filter_pairs.py --input <噪声对文件> --output <输出目录> [--min_count 2] [--min_unique_abnormal 2] [--drop_digit_pairs]
 """
 
-import pandas as pd
+import sys
 import argparse
+import logging          # <--- 添加这一行
 from pathlib import Path
+import pandas as pd
+
+# 导入项目统一日志和过滤函数
+sys.path.insert(0, str(Path(__file__).parent.parent))
+from utils.logger import setup_logger
 from utils.pair_filters import filter_digit_pairs, filter_by_min_count, aggregate_by_prev
 
 def main():
     # ================== 可修改的硬编码默认值 ==================
-    DEFAULT_INPUT = "work/test_Qwen_pt/outputs/sample_20_analysis/prev_window_1/noise_pairs.csv"
-    DEFAULT_OUTPUT = "work/test_Qwen_pt/outputs/sample_20_analysis/prev_clean"
+    DEFAULT_INPUT = "work/test_gpt2_sample_10_pt/outputs/sample_20_analysis/prev_window_1/noise_pairs.csv"
+    DEFAULT_OUTPUT = "work/test_gpt2_sample_10_pt/outputs/sample_20_analysis/prev_clean"
     DEFAULT_MIN_COUNT = 2
     DEFAULT_MIN_UNIQUE_ABNORMAL = 2
     DEFAULT_DROP_DIGIT_PAIRS = True   # 默认过滤纯数字对
@@ -35,42 +42,62 @@ def main():
                         help=f"最小异常词种类数，保留前置词对应的不同异常词数量≥该值（默认: {DEFAULT_MIN_UNIQUE_ABNORMAL}）")
     parser.add_argument("--drop_digit_pairs", action='store_true', default=DEFAULT_DROP_DIGIT_PAIRS,
                         help="是否过滤掉前置词和异常词都是纯数字的词对（默认启用）")
+    parser.add_argument("--log_level", type=str, default="INFO", choices=["DEBUG", "INFO", "WARNING", "ERROR"],
+                        help="控制台日志级别（默认 INFO）")
     args = parser.parse_args()
+
+    # 设置日志：文件记录所有 INFO 及以上，控制台只显示 WARNING 及以上（减少刷屏）
+    log_dir = Path(args.output).parent / "logs"   # 日志放在输出目录的父目录的 logs 下
+    logger = setup_logger(log_dir, "filter_pairs", console_level=getattr(logging, args.log_level))
+
+    logger.info(f"开始处理，输入文件: {args.input}")
 
     input_path = Path(args.input)
     output_dir = Path(args.output)
     output_dir.mkdir(parents=True, exist_ok=True)
 
-    print(f"读取文件: {input_path}")
-    df = pd.read_csv(input_path)
-    print(f"原始词对数量: {len(df)}")
+    # 读取数据
+    try:
+        df = pd.read_csv(input_path)
+        logger.info(f"原始词对数量: {len(df)}")
+    except Exception as e:
+        logger.error(f"读取文件失败: {e}")
+        sys.exit(1)
+
+    # 检查列名
+    if 'prev_word' not in df.columns or 'abnormal_word' not in df.columns:
+        logger.error("CSV文件必须包含 'prev_word' 和 'abnormal_word' 列")
+        sys.exit(1)
 
     # 1. 数字对过滤
     if args.drop_digit_pairs:
         before = len(df)
         df = filter_digit_pairs(df)
-        print(f"数字对过滤后剩余 {len(df)} 条 (移除 {before - len(df)})")
+        logger.info(f"数字对过滤后剩余 {len(df)} 条 (移除 {before - len(df)})")
+    else:
+        logger.info("跳过数字对过滤")
 
-    # 2. 频次过滤（基于 (prev_word, abnormal_word) 组合）
+    # 2. 频次过滤
     df_counts = filter_by_min_count(df, args.min_count)
-    print(f"频次过滤后唯一词对数量: {len(df_counts)} (要求出现≥{args.min_count})")
+    logger.info(f"频次过滤后唯一词对数量: {len(df_counts)} (要求出现≥{args.min_count})")
 
-    # 3. 按前置词聚合（自动附加概率）
+    # 3. 按前置词聚合
     grouped = aggregate_by_prev(df_counts, with_prob=True)
 
     # 4. 按异常词种类过滤
     before = len(grouped)
     grouped = grouped[grouped['unique_abnormal'] >= args.min_unique_abnormal]
-    print(f"异常词种类过滤后剩余前置词数量: {len(grouped)} (要求 unique_abnormal ≥ {args.min_unique_abnormal})")
+    logger.info(f"异常词种类过滤后剩余前置词数量: {len(grouped)} (要求 unique_abnormal ≥ {args.min_unique_abnormal})")
 
-    # 输出
+    # 输出到CSV
     output_file = output_dir / "prev_clean_summary.csv"
     grouped.to_csv(output_file, index=False, encoding='utf-8')
-    print(f"结果已保存至: {output_file}")
+    logger.info(f"结果已保存至: {output_file}")
 
-    # 预览
-    print("\n前10个前置词统计:")
-    print(grouped.head(10).to_string(index=False))
+    # 打印前10行预览（使用 info 级别）
+    logger.info("前10个前置词统计:")
+    for i, row in grouped.head(10).iterrows():
+        logger.info(f"{row['prev_word']}: total={row['total_occurrences']}, unique={row['unique_abnormal']}, abnormal={row['abnormal_words'][:100]}...")
 
 if __name__ == "__main__":
     main()
