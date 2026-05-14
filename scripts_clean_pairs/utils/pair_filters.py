@@ -1,5 +1,6 @@
 # scripts_clean_pairs/pair_filters.py
 import pandas as pd
+import re
 
 def is_digit_only(s: str) -> bool:
     """判断字符串是否只包含数字（阿拉伯数字或中文大写数字）"""
@@ -70,6 +71,17 @@ def aggregate_by_prev(df: pd.DataFrame, with_prob: bool = True) -> pd.DataFrame:
         grouped = grouped.drop(columns=['counts_list', 'words_list'])
     
     return grouped.sort_values('total_occurrences', ascending=False)
+
+def remove_english_letters(text: str) -> str:
+    """
+    删除字符串中的所有英文字母（a-z, A-Z），保留其他字符。
+    例如: "abc章123" -> "章123"
+    """
+    # 删除所有英文字母
+    cleaned = re.sub(r'[a-zA-Z]+', '', text)
+    # 可选：去除多余空格（如果有）
+    cleaned = re.sub(r'\s+', ' ', cleaned).strip()
+    return cleaned
 
 # 未来扩展示例
 def filter_by_length(df: pd.DataFrame, min_len: int = 2, max_len: int = 20):

@@ -5,22 +5,24 @@
    - 根据词对频次过滤（min_count）
    - 根据前置词对应的异常词种类数过滤（min_unique_abnormal）
    - 可选：过滤掉前后都是纯数字的词对
+   - 可选：删除英文字母（只保留汉字、数字等）
    - 异常词后自动附加出现概率（括号内小数），并按概率降序排列
    - 统一日志输出，自动将日志放入 work/{task_name}/logs/
 用法:
-    python filter_pairs.py --input <噪声对文件> --output <输出目录> [--min_count 2] [--min_unique_abnormal 2] [--drop_digit_pairs]
+    python filter_pairs.py --input <噪声对文件> --output <输出目录> [--min_count 2] [--min_unique_abnormal 2] [--drop_digit_pairs] [--remove_english]
 """
 
 import sys
 import logging
 import argparse
+import re
 from pathlib import Path
 import pandas as pd
 
 # 导入项目统一日志和过滤函数
 sys.path.insert(0, str(Path(__file__).parent.parent))
 from utils.logger import setup_logger
-from utils.pair_filters import filter_digit_pairs, filter_by_min_count, aggregate_by_prev
+from utils.pair_filters import filter_digit_pairs, filter_by_min_count, aggregate_by_prev,remove_english_letters
 
 def get_task_dir_from_input(input_path: Path, base_dir_name: str = "work") -> Path:
     """
@@ -43,6 +45,7 @@ def main():
     DEFAULT_MIN_COUNT = 2
     DEFAULT_MIN_UNIQUE_ABNORMAL = 2
     DEFAULT_DROP_DIGIT_PAIRS = True
+    DEFAULT_REMOVE_ENGLISH = True   # 默认删除英文字母
     # ========================================================
 
     parser = argparse.ArgumentParser(description="从noise_pairs.csv中过滤低频词对，生成前置词统计")
@@ -56,6 +59,8 @@ def main():
                         help=f"最小异常词种类数，保留前置词对应的不同异常词数量≥该值（默认: {DEFAULT_MIN_UNIQUE_ABNORMAL}）")
     parser.add_argument("--drop_digit_pairs", action='store_true', default=DEFAULT_DROP_DIGIT_PAIRS,
                         help="是否过滤掉前置词和异常词都是纯数字的词对（默认启用）")
+    parser.add_argument("--remove_english", action='store_true', default=DEFAULT_REMOVE_ENGLISH,
+                        help="是否删除前置词和异常词中的英文字母（默认启用）")
     parser.add_argument("--log_dir", type=str, default=None,
                         help="自定义日志目录（若不指定，则从输入文件路径自动推断 task_dir 下的 logs）")
     parser.add_argument("--log_level", type=str, default="INFO", choices=["DEBUG", "INFO", "WARNING", "ERROR"],
@@ -82,13 +87,32 @@ def main():
     output_dir = Path(args.output)
     output_dir.mkdir(parents=True, exist_ok=True)
 
-    # 读取数据
-    try:
-        df = pd.read_csv(input_path)
-        logger.info(f"原始词对数量: {len(df)}")
-    except Exception as e:
-        logger.error(f"读取文件失败: {e}")
-        sys.exit(1)
+    # # 读取数据
+    # try:
+    #     df = pd.read_csv(input_path)
+    #     logger.info(f"原始词对数量: {len(df)}")
+    # except Exception as e:
+    #     logger.error(f"读取文件失败: {e}")
+    #     sys.exit(1)
+
+    # 读取数据后，执行清洗
+    df = pd.read_csv(input_path)
+    logger.info(f"原始词对数量: {len(df)}")
+    if args.remove_english:
+        before = len(df)
+        # 对 prev_word 和 abnormal_word 应用清洗
+        df['prev_word_clean'] = df['prev_word'].astype(str).apply(remove_english_letters)
+        df['abnormal_word_clean'] = df['abnormal_word'].astype(str).apply(remove_english_letters)
+        # 删除清洗后任一方为空的行
+        df = df[(df['prev_word_clean'] != '') & (df['abnormal_word_clean'] != '')]
+        # 替换原列
+        df['prev_word'] = df['prev_word_clean']
+        df['abnormal_word'] = df['abnormal_word_clean']
+        df = df.drop(columns=['prev_word_clean', 'abnormal_word_clean'])
+        removed = before - len(df)
+        logger.info(f"删除英文字母后移除 {removed} 行 (因清洗后为空)")
+    else:
+        logger.info("跳过删除英文字母")
 
     # 检查列名
     if 'prev_word' not in df.columns or 'abnormal_word' not in df.columns:
