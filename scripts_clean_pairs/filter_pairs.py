@@ -12,12 +12,12 @@
 import pandas as pd
 import argparse
 from pathlib import Path
-from scripts_clean_pairs.pair_filters import filter_digit_pairs, filter_by_min_count, aggregate_by_prev
+from utils.pair_filters import filter_digit_pairs, filter_by_min_count, aggregate_by_prev
 
 def main():
     # ================== 可修改的硬编码默认值 ==================
-    DEFAULT_INPUT = "work/test_gpt2_sample_10_pt/outputs/sample_20_analysis/prev_window_1/noise_pairs.csv"
-    DEFAULT_OUTPUT = "work/test_gpt2_sample_10_pt/outputs/sample_20_analysis/prev_clean"
+    DEFAULT_INPUT = "work/test_Qwen_pt/outputs/sample_20_analysis/prev_window_1/noise_pairs.csv"
+    DEFAULT_OUTPUT = "work/test_Qwen_pt/outputs/sample_20_analysis/prev_clean"
     DEFAULT_MIN_COUNT = 2
     DEFAULT_MIN_UNIQUE_ABNORMAL = 2
     DEFAULT_DROP_DIGIT_PAIRS = True   # 默认过滤纯数字对
