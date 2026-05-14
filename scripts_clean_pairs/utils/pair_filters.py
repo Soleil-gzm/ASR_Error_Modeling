@@ -83,6 +83,44 @@ def remove_english_letters(text: str) -> str:
     cleaned = re.sub(r'\s+', ' ', cleaned).strip()
     return cleaned
 
+# 常见姓氏（可根据需要扩充）
+COMMON_SURNAMES = {
+    "李", "王", "张", "刘", "陈", "杨", "赵", "黄", "周", "吴",
+    "徐", "孙", "马", "朱", "胡", "林", "郭", "何", "高", "郑",
+    "罗", "梁", "谢", "宋", "唐", "邓", "萧", "冯", "韩", "曹",
+    "彭", "曾", "肖", "田", "董", "袁", "潘", "于", "蒋", "蔡",
+    "余", "杜", "戴", "夏", "钟", "汪", "田", "任", "姜", "范"
+}
+
+def is_name_like(word: str) -> bool:
+    """
+    判断是否为中文姓名（至少2个字符，首字为常见姓氏）
+    """
+    if not isinstance(word, str) or len(word) < 2:
+        return False
+    return word[0] in COMMON_SURNAMES
+
+def is_honorific(word: str) -> bool:
+    """
+    判断是否为称谓词（包含“先生”、“女士”、“小姐”、“总”、“经理”、“老师”、“医生”、“老板”等）
+    """
+    if not isinstance(word, str):
+        return False
+    keywords = ["先生", "女士", "小姐", "总", "经理", "老师", "医生", "老板"]
+    return any(kw in word for kw in keywords)
+
+def filter_name_honorific_pairs(df: pd.DataFrame, drop_name: bool = True, drop_honorific: bool = True) -> pd.DataFrame:
+    if not drop_name and not drop_honorific:
+        return df
+    # 确保使用原始索引
+    mask = pd.Series(True, index=df.index)
+    if drop_name:
+        mask &= ~df['prev_word'].apply(is_name_like)
+    if drop_honorific:
+        mask &= ~df['prev_word'].apply(is_honorific)
+    return df.loc[mask].reset_index(drop=True)
+
+
 # 未来扩展示例
 def filter_by_length(df: pd.DataFrame, min_len: int = 2, max_len: int = 20):
     mask = df['prev_word'].str.len().between(min_len, max_len) & \

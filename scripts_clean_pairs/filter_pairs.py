@@ -6,10 +6,11 @@
    - 根据前置词对应的异常词种类数过滤（min_unique_abnormal）
    - 可选：过滤掉前后都是纯数字的词对
    - 可选：删除英文字母（只保留汉字、数字等）
+   - 可选：过滤掉前置词为姓名或称谓的词对
    - 异常词后自动附加出现概率（括号内小数），并按概率降序排列
    - 统一日志输出，自动将日志放入 work/{task_name}/logs/
 用法:
-    python filter_pairs.py --input <噪声对文件> --output <输出目录> [--min_count 2] [--min_unique_abnormal 2] [--drop_digit_pairs] [--remove_english]
+    python filter_pairs.py --input <噪声对文件> --output <输出目录> [选项]
 """
 
 import sys
@@ -19,39 +20,41 @@ import re
 from pathlib import Path
 import pandas as pd
 
-# 导入项目统一日志和过滤函数
 sys.path.insert(0, str(Path(__file__).parent.parent))
 from utils.logger import setup_logger
-from utils.pair_filters import filter_digit_pairs, filter_by_min_count, aggregate_by_prev,remove_english_letters
+from utils.pair_filters import (
+    filter_digit_pairs,
+    filter_by_min_count,
+    aggregate_by_prev,
+    remove_english_letters,
+    filter_name_honorific_pairs
+)
 
 def get_task_dir_from_input(input_path: Path, base_dir_name: str = "work") -> Path:
-    """
-    从输入文件路径推断任务目录。
-    例如：work/test_Qwen_pt/outputs/... -> work/test_Qwen_pt
-    """
     parts = input_path.absolute().parts
     try:
         idx = parts.index(base_dir_name)
         if idx + 1 < len(parts):
-            return Path(*parts[:idx+2])
+            return Path(*parts[:idx+2]) 
     except ValueError:
         pass
     return Path.cwd() / base_dir_name / "unknown_task"
 
 def main():
     # ================== 可修改的硬编码默认值 ==================
-    # ''' Qwen '''
-    # DEFAULT_INPUT = "work/test_Qwen_pt/outputs/sample_20_analysis/prev_window_1/noise_pairs.csv"
-    # DEFAULT_OUTPUT = "work/test_Qwen_pt/outputs/sample_20_analysis/prev_clean"
+    ''' Qwen '''
+    DEFAULT_INPUT = "work/test_Qwen_pt/outputs/sample_20_analysis/prev_window_1/noise_pairs.csv"
+    DEFAULT_OUTPUT = "work/test_Qwen_pt/outputs/sample_20_analysis/prev_clean"
 
-    ''' gpt2 '''
-    DEFAULT_INPUT = "work/test_gpt2_sample_10_pt/outputs/sample_20_analysis/prev_window_1/noise_pairs.csv"
-    DEFAULT_OUTPUT = "work/test_gpt2_sample_10_pt/outputs/sample_20_analysis/prev_clean"
+    # ''' gpt2 '''
+    # DEFAULT_INPUT = "work/test_gpt2_sample_10_pt/outputs/sample_20_analysis/prev_window_1/noise_pairs.csv"
+    # DEFAULT_OUTPUT = "work/test_gpt2_sample_10_pt/outputs/sample_20_analysis/prev_clean"
 
     DEFAULT_MIN_COUNT = 2
     DEFAULT_MIN_UNIQUE_ABNORMAL = 2
     DEFAULT_DROP_DIGIT_PAIRS = True
-    DEFAULT_REMOVE_ENGLISH = True   # 默认删除英文字母
+    DEFAULT_REMOVE_ENGLISH = True
+    DEFAULT_FILTER_NAME_HONORIFIC = True   # 默认过滤姓名/称谓
     # ========================================================
 
     parser = argparse.ArgumentParser(description="从noise_pairs.csv中过滤低频词对，生成前置词统计")
@@ -67,6 +70,8 @@ def main():
                         help="是否过滤掉前置词和异常词都是纯数字的词对（默认启用）")
     parser.add_argument("--remove_english", action='store_true', default=DEFAULT_REMOVE_ENGLISH,
                         help="是否删除前置词和异常词中的英文字母（默认启用）")
+    parser.add_argument("--filter_name_honorific", action='store_true', default=DEFAULT_FILTER_NAME_HONORIFIC,
+                        help="是否过滤掉前置词为姓名或称谓的词对（默认启用）")
     parser.add_argument("--log_dir", type=str, default=None,
                         help="自定义日志目录（若不指定，则从输入文件路径自动推断 task_dir 下的 logs）")
     parser.add_argument("--log_level", type=str, default="INFO", choices=["DEBUG", "INFO", "WARNING", "ERROR"],
@@ -82,8 +87,7 @@ def main():
         log_dir = task_dir / "logs"
     log_dir.mkdir(parents=True, exist_ok=True)
 
-    # 设置日志：文件级别 DEBUG，控制台级别按参数
-    logger = setup_logger(log_dir, "filter_pairs", 
+    logger = setup_logger(log_dir, "filter_pairs",
                           level=logging.DEBUG,
                           console_level=getattr(logging, args.log_level))
     logger.info(f"开始处理，输入文件: {args.input}")
@@ -93,24 +97,13 @@ def main():
     output_dir = Path(args.output)
     output_dir.mkdir(parents=True, exist_ok=True)
 
-    # 读取数据后，执行清洗
-    df = pd.read_csv(input_path)
-    logger.info(f"原始词对数量: {len(df)}")
-    if args.remove_english:
-        before = len(df)
-        # 对 prev_word 和 abnormal_word 应用清洗
-        df['prev_word_clean'] = df['prev_word'].astype(str).apply(remove_english_letters)
-        df['abnormal_word_clean'] = df['abnormal_word'].astype(str).apply(remove_english_letters)
-        # 删除清洗后任一方为空的行
-        df = df[(df['prev_word_clean'] != '') & (df['abnormal_word_clean'] != '')]
-        # 替换原列
-        df['prev_word'] = df['prev_word_clean']
-        df['abnormal_word'] = df['abnormal_word_clean']
-        df = df.drop(columns=['prev_word_clean', 'abnormal_word_clean'])
-        removed = before - len(df)
-        logger.info(f"删除英文字母后移除 {removed} 行 (因清洗后为空)")
-    else:
-        logger.info("跳过删除英文字母")
+    # 读取数据
+    try:
+        df = pd.read_csv(input_path)
+        logger.info(f"原始词对数量: {len(df)}")
+    except Exception as e:
+        logger.error(f"读取文件失败: {e}")
+        sys.exit(1)
 
     # 检查列名
     if 'prev_word' not in df.columns or 'abnormal_word' not in df.columns:
@@ -125,22 +118,49 @@ def main():
     else:
         logger.info("跳过数字对过滤")
 
-    # 2. 频次过滤
+    # 2. 删除英文字母
+    if args.remove_english:
+        before = len(df)
+        df['prev_word_clean'] = df['prev_word'].astype(str).apply(remove_english_letters)
+        df['abnormal_word_clean'] = df['abnormal_word'].astype(str).apply(remove_english_letters)
+        df = df[(df['prev_word_clean'] != '') & (df['abnormal_word_clean'] != '')]
+        df['prev_word'] = df['prev_word_clean']
+        df['abnormal_word'] = df['abnormal_word_clean']
+        df = df.drop(columns=['prev_word_clean', 'abnormal_word_clean'])
+        logger.info(f"删除英文字母后剩余 {len(df)} 条 (移除 {before - len(df)})")
+    else:
+        logger.info("跳过删除英文字母")
+
+    # 3. 过滤姓名/称谓前置词
+    if args.filter_name_honorific:
+        before = len(df)
+        df = filter_name_honorific_pairs(df)
+        logger.info(f"姓名/称谓过滤后剩余 {len(df)} 条 (移除 {before - len(df)})")
+    else:
+        logger.info("跳过姓名/称谓过滤")
+
+    # 4. 频次过滤（基于 (prev_word, abnormal_word) 组合）
     df_counts = filter_by_min_count(df, args.min_count)
     logger.info(f"频次过滤后唯一词对数量: {len(df_counts)} (要求出现≥{args.min_count})")
 
-    # 3. 按前置词聚合
+    # 5. 按前置词聚合（自动附加概率）
     grouped = aggregate_by_prev(df_counts, with_prob=True)
 
-    # 4. 按异常词种类过滤
+    # 6. 按异常词种类过滤
     before = len(grouped)
     grouped = grouped[grouped['unique_abnormal'] >= args.min_unique_abnormal]
     logger.info(f"异常词种类过滤后剩余前置词数量: {len(grouped)} (要求 unique_abnormal ≥ {args.min_unique_abnormal})")
 
-    # 输出到CSV
+    # 输出
     output_file = output_dir / "prev_clean_summary.csv"
     grouped.to_csv(output_file, index=False, encoding='utf-8')
     logger.info(f"结果已保存至: {output_file}")
+
+    # 预览
+    logger.info("前10个前置词统计:")
+    for _, row in grouped.head(10).iterrows():
+        abnormal_preview = row['abnormal_words'][:100] + "..." if len(row['abnormal_words']) > 100 else row['abnormal_words']
+        logger.info(f"{row['prev_word']}: total={row['total_occurrences']}, unique={row['unique_abnormal']}, abnormal={abnormal_preview}")
 
 if __name__ == "__main__":
     main()
