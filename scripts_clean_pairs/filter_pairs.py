@@ -40,8 +40,14 @@ def get_task_dir_from_input(input_path: Path, base_dir_name: str = "work") -> Pa
 
 def main():
     # ================== 可修改的硬编码默认值 ==================
-    DEFAULT_INPUT = "work/test_Qwen_pt/outputs/sample_20_analysis/prev_window_1/noise_pairs.csv"
-    DEFAULT_OUTPUT = "work/test_Qwen_pt/outputs/sample_20_analysis/prev_clean"
+    # ''' Qwen '''
+    # DEFAULT_INPUT = "work/test_Qwen_pt/outputs/sample_20_analysis/prev_window_1/noise_pairs.csv"
+    # DEFAULT_OUTPUT = "work/test_Qwen_pt/outputs/sample_20_analysis/prev_clean"
+
+    ''' gpt2 '''
+    DEFAULT_INPUT = "work/test_gpt2_sample_10_pt/outputs/sample_20_analysis/prev_window_1/noise_pairs.csv"
+    DEFAULT_OUTPUT = "work/test_gpt2_sample_10_pt/outputs/sample_20_analysis/prev_clean"
+
     DEFAULT_MIN_COUNT = 2
     DEFAULT_MIN_UNIQUE_ABNORMAL = 2
     DEFAULT_DROP_DIGIT_PAIRS = True
@@ -86,14 +92,6 @@ def main():
     input_path = Path(args.input)
     output_dir = Path(args.output)
     output_dir.mkdir(parents=True, exist_ok=True)
-
-    # # 读取数据
-    # try:
-    #     df = pd.read_csv(input_path)
-    #     logger.info(f"原始词对数量: {len(df)}")
-    # except Exception as e:
-    #     logger.error(f"读取文件失败: {e}")
-    #     sys.exit(1)
 
     # 读取数据后，执行清洗
     df = pd.read_csv(input_path)
