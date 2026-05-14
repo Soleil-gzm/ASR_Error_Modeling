@@ -27,7 +27,8 @@ from utils.pair_filters import (
     filter_by_min_count,
     aggregate_by_prev,
     remove_english_letters,
-    filter_name_honorific_pairs
+    filter_name_honorific_pairs,
+    filter_garbled_pairs
 )
 
 def get_task_dir_from_input(input_path: Path, base_dir_name: str = "work") -> Path:
@@ -131,6 +132,11 @@ def main():
     else:
         logger.info("跳过删除英文字母")
 
+    # 3. 过滤乱码词对（新增）
+    before = len(df)
+    df = filter_garbled_pairs(df)
+    logger.info(f"乱码过滤后剩余 {len(df)} 条 (移除 {before - len(df)})")
+
     # 3. 过滤姓名/称谓前置词
     if args.filter_name_honorific:
         before = len(df)
@@ -155,12 +161,6 @@ def main():
     output_file = output_dir / "prev_clean_summary.csv"
     grouped.to_csv(output_file, index=False, encoding='utf-8')
     logger.info(f"结果已保存至: {output_file}")
-
-    # 预览
-    logger.info("前10个前置词统计:")
-    for _, row in grouped.head(10).iterrows():
-        abnormal_preview = row['abnormal_words'][:100] + "..." if len(row['abnormal_words']) > 100 else row['abnormal_words']
-        logger.info(f"{row['prev_word']}: total={row['total_occurrences']}, unique={row['unique_abnormal']}, abnormal={abnormal_preview}")
 
 if __name__ == "__main__":
     main()

@@ -120,6 +120,23 @@ def filter_name_honorific_pairs(df: pd.DataFrame, drop_name: bool = True, drop_h
         mask &= ~df['prev_word'].apply(is_honorific)
     return df.loc[mask].reset_index(drop=True)
 
+# 在 pair_filters.py 中添加以下内容
+
+def is_valid_word(word: str) -> bool:
+    """
+    判断字符串是否只包含：汉字、数字、常用中文标点及空格。
+    如果字符串包含任何其他字符（如乱码、特殊符号、英文字母等），返回 False。
+    """
+    if not isinstance(word, str) or len(word) == 0:
+        return False
+    # 允许的字符：汉字、数字、常见中文标点、空格
+    pattern = r'^[\u4e00-\u9fff\d，。！？；：、“”‘’《》【】（）\s]+$'
+    return bool(re.fullmatch(pattern, word))
+
+def filter_garbled_pairs(df: pd.DataFrame) -> pd.DataFrame:
+    """删除前置词或异常词中包含乱码或非法字符的词对"""
+    mask = df['prev_word'].apply(is_valid_word) & df['abnormal_word'].apply(is_valid_word)
+    return df[mask].reset_index(drop=True)
 
 # 未来扩展示例
 def filter_by_length(df: pd.DataFrame, min_len: int = 2, max_len: int = 20):
