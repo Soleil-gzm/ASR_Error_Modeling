@@ -1,6 +1,7 @@
 # scripts_clean_pairs/pair_filters.py
 import pandas as pd
 import re
+import string
 
 def is_digit_only(s: str) -> bool:
     """判断字符串是否只包含数字（阿拉伯数字或中文大写数字）"""
@@ -120,8 +121,6 @@ def filter_name_honorific_pairs(df: pd.DataFrame, drop_name: bool = True, drop_h
         mask &= ~df['prev_word'].apply(is_honorific)
     return df.loc[mask].reset_index(drop=True)
 
-# 在 pair_filters.py 中添加以下内容
-
 def is_valid_word(word: str) -> bool:
     """
     判断字符串是否只包含：汉字、数字、常用中文标点及空格。
@@ -136,6 +135,31 @@ def is_valid_word(word: str) -> bool:
 def filter_garbled_pairs(df: pd.DataFrame) -> pd.DataFrame:
     """删除前置词或异常词中包含乱码或非法字符的词对"""
     mask = df['prev_word'].apply(is_valid_word) & df['abnormal_word'].apply(is_valid_word)
+    return df[mask].reset_index(drop=True)
+
+# 定义中文标点符号集合
+CHINESE_PUNCTUATION = set("，。！？；：、“”‘’《》【】（）…—～")
+
+def is_punctuation_only(word: str) -> bool:
+    """判断字符串是否只包含标点符号（中英文标点）"""
+    if not isinstance(word, str) or len(word) == 0:
+        return False
+    # 英文标点
+    english_punct = set(string.punctuation)
+    all_punct = CHINESE_PUNCTUATION.union(english_punct)
+    return all(ch in all_punct for ch in word)
+
+def filter_punctuation_pairs(df: pd.DataFrame, filter_prev: bool = True, filter_abnormal: bool = False) -> pd.DataFrame:
+    """
+    删除前置词或异常词是纯标点符号的词对
+    - filter_prev: 是否过滤前置词为纯标点
+    - filter_abnormal: 是否过滤异常词为纯标点（默认不过滤，因为异常词可能是标点错误）
+    """
+    mask = pd.Series(True, index=df.index)
+    if filter_prev:
+        mask &= ~df['prev_word'].apply(is_punctuation_only)
+    if filter_abnormal:
+        mask &= ~df['abnormal_word'].apply(is_punctuation_only)
     return df[mask].reset_index(drop=True)
 
 # 未来扩展示例

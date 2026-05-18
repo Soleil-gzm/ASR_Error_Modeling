@@ -28,7 +28,8 @@ from utils.pair_filters import (
     aggregate_by_prev,
     remove_english_letters,
     filter_name_honorific_pairs,
-    filter_garbled_pairs
+    filter_garbled_pairs,
+    filter_punctuation_pairs
 )
 
 def get_task_dir_from_input(input_path: Path, base_dir_name: str = "work") -> Path:
@@ -77,6 +78,8 @@ def main():
                         help="自定义日志目录（若不指定，则从输入文件路径自动推断 task_dir 下的 logs）")
     parser.add_argument("--log_level", type=str, default="INFO", choices=["DEBUG", "INFO", "WARNING", "ERROR"],
                         help="控制台日志级别（默认 INFO）")
+    parser.add_argument("--filter_punctuation", action='store_true', default=True,
+                    help="是否过滤前置词为纯标点符号的词对（默认启用）")
     args = parser.parse_args()
 
     # 确定日志目录
@@ -144,6 +147,16 @@ def main():
         logger.info(f"姓名/称谓过滤后剩余 {len(df)} 条 (移除 {before - len(df)})")
     else:
         logger.info("跳过姓名/称谓过滤")
+
+    # 过滤前置词是纯标点的词对（可选）
+    before = len(df)
+    df = filter_punctuation_pairs(df, filter_prev=True, filter_abnormal=False)
+    logger.info(f"标点过滤后剩余 {len(df)} 条 (移除 {before - len(df)})")
+
+    if args.filter_punctuation:
+        before = len(df)
+        df = filter_punctuation_pairs(df)
+        logger.info(f"标点过滤后剩余 {len(df)} 条 (移除 {before - len(df)})")
 
     # 4. 频次过滤（基于 (prev_word, abnormal_word) 组合）
     df_counts = filter_by_min_count(df, args.min_count)
