@@ -1,5 +1,5 @@
 task_name: "test_gpt2_sample_10_pt"
-resume: false
+resume: false       # 是否启用断点续跑
 
 paths:
   input:
@@ -25,9 +25,10 @@ steps:
     batch_size: 256
     max_seq_len: 256
     gpu_ids: [7]          # 根据您的GPU编号调整
-    num_workers: 4
+    # num_workers: 4
     sample_ratio: 0.2      # 采样比例，1.0 表示全量
     sample_seed: 42        # 随机种子，保证每次采样一致
+    chunk_size: 50000
 
   02_filter_high_nll:
     enabled: false

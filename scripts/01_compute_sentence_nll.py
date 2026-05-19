@@ -24,8 +24,16 @@ from scripts.utils.cache import is_cache_valid, write_cache_meta, invalidate_cac
 # ---------- 辅助函数 ----------
 def compute_nll_from_tensors(model, input_ids, attention_mask, batch_size, device, desc="推理"):
     """从预计算的张量直接计算句子级平均 NLL，返回 NLL 列表和推理耗时"""
+
+    ''' num_workers=0  默认为0
+        这里的 dataset 是 TensorDataset，里面已经存放了准备好的 input_ids 和 attention_mask（都是 PyTorch 张量）。
+        从内存张量中加载数据到 GPU 是非常快的操作（仅仅是切片和复制），几乎没有 CPU 开销，因此：
+        用多进程（num_workers>0）并不会带来性能提升，反而会引入额外的进程间通信开销、增加内存占用，
+        并且可能因为子进程继承 CUDA 上下文而引发错误（尤其在 GPU 环境下，通常要求主进程创建 CUDA 张量，子进程不应再初始化 CUDA）。 
+    '''
     dataset = TensorDataset(input_ids, attention_mask)
     dataloader = DataLoader(dataset, batch_size=batch_size, shuffle=False, pin_memory=True, num_workers=0)
+
     model.eval()
     all_nll = []
     start_time = time.perf_counter()
