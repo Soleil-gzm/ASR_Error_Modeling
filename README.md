@@ -1,11 +1,13 @@
-# ASR_ERROR_MODELING 转录错误模式分析流水线
+# ASR 转录错误模式分析流水线
 
-本项目旨在系统性地分析语音识别（ASR）系统的转录错误模式。通过利用预训练语言模型（GPT‑2/Qwen）计算文本的负对数似然（NLL），自动定位高错误概率的词语，并从中提取出「前置词 ， 异常词」的噪声词对，最终生成可用于数据增强的噪声词表。
+本项目旨在系统性地分析语音识别（ASR）系统的转录错误模式。通过利用预训练语言模型（GPT‑2/Qwen）计算文本的负对数似然（NLL），自动定位高错误概率的词语，并从中提取出「前置词 → 异常词」的噪声词对，最终生成可用于数据增强的噪声词表。
 
 ## 📖 项目概览
 
 -   **输入**：ASR 系统输出的原始对话文本（`.txt` 文件，含说话人标记）
+    
 -   **处理流程**：
+    
     1.  文本清洗与句子提取
         
     2.  使用 GPT‑2 / Qwen 计算句子级 NLL
@@ -29,55 +31,6 @@
     -   清洗后的噪声词对（`prev_word, abnormal_word`）
         
     -   可直接用于数据增强的噪声词表（含概率）
-
-asr_error_analysis/
-├── .gitignore
-├── README.md
-├── requirements.txt
-├── pipeline_config.yaml                # 主配置文件
-├── run_pipeline.py                     # 流水线主控脚本（支持--config, --step, --resume）
-├── scripts/                            # 各步骤独立脚本
-│   ├── 00_preprocess.py                # 扫描txt，提取句子，生成CSV
-│   ├── 01_compute_sentence_nll.py      # 计算句子级平均NLL（GPU批处理）
-│   ├── 02_filter_high_nll.py           # 筛选可疑句子
-│   ├── 03_compute_word_nll.py          # 对可疑句子逐词计算NLL（可选）
-│   ├── 04_statistics.py                # 统计分析，生成报告（图表、错误模式）
-│   └── utils/                          # 公用模块
-│       ├── __init__.py
-│       ├── model_loader.py
-│       ├── nll_calculator.py
-│       ├── text_cleaner.py
-│       └── logger.py
-├── datas/                              # 原始数据（只读）
-│   └── original/                       # 您的txt目录结构保持不变
-│       ├── 202403/original/*.txt
-│       └── ...
-├── models/                             # 模型缓存（可选，设置 TRANSFORMERS_CACHE）
-├── work/                               # 工作目录（任务隔离、时间戳输出）
-│   ├── logs/                           # 流水线主控日志（每个任务一个）
-│   │   └── pipeline_{task_name}.log
-│   └── {task_name}/                    # 按任务隔离，如task_20240508_v1
-│       ├── logs/                          # 该任务下各子脚本的日志
-│       │   ├── step_00_preprocess.log
-│       │   ├── step_01_compute_nll.log
-│       │   └── ...
-│       ├── .step_00_done               # 断点标记
-│       ├── .step_01_done
-│       ├── ...
-│       ├── run_metadata.json           # 记录本次运行的参数、时间戳
-│       ├── intermediate/               # 中间结果（可删）
-│       │   ├── all_sentences.csv 
-│       │   ├── sentence_nll.csv
-│       │   └── high_nll_sentences.csv
-│       └── outputs/                    # 最终输出（带时间戳子目录）
-│           └── {timestamp}_analysis/   # 每次运行生成新时间戳目录
-│               ├── word_nll_details.csv
-│               ├── error_patterns.json
-│               ├── report/             # 图表和报告
-│               └── summary_report.pdf
-└── tests/                              # 单元测试
-
-
 
 ASR_Error_Modeling/
 ├── datas/                     # 原始 ASR 文本（只读）
@@ -127,16 +80,49 @@ ASR_Error_Modeling/
 所有运行参数集中在 `configs/pipeline_config.yaml`，关键配置项说明：
 | 配置节 | 说明 |
 |--|--|
-| `task_name` | 任务标识，用于创建隔离的工作目录 |
-| `resume` | 是否启用断点续跑（`true` 或 `false`） |
-| `paths.input.raw_data_dir` | 原始 `.txt` 文件所在目录 |
-| `paths.output.base_dir` | 工作根目录（默认 `work`） |
-| `steps.00_preprocess.min_sentence_len` | 最小句子长度（过滤过短句子） |
-|`steps.01_compute_sentence_nll.model_name`| 语言模型名称（如 `uer/gpt2-chinese-cluecorpussmall`） |
-| `steps.01_compute_sentence_nll.sample_ratio` | 采样比例（0.1 表示使用 10% 数据） |
-| `steps.02_filter_high_nll.threshold_percentile` | 高 NLL 句子筛选百分位（例如 95 表示取前 5%） |
-| `steps.05_extract_noise_words.prev_window` | 前置词窗口大小（1 或 2） |
+| **`task_name`** | 任务标识，用于创建隔离的工作目录 |
+| **`resume`** | 是否启用断点续跑（`true` 或 `false`） |
+| **paths :** |
+| `input.raw_data_dir` | 原始 `.txt` 文件所在目录 |
+| `output.base_dir` | 所有任务的工作根目录 |
+| `output.models_cache` | 预训练模型缓存目录 |
+|**steps :** |  |
+| `enabled` | 是否开启该步骤 |
+| `script` | 本步骤对应的脚本路径。 |
+| `input_csv` | 输入文件，相对task_dir |
+| `output_csv` | 输出文件，相对task_dir |
+| **`00_preprocess`** | **`预处理原始ASR转录文本`** |
+| `min_sentence_len` | 最小句子长度（过滤过短句子） |
+| `remove_speaker_prefix` | 去掉行首“说话人X:” |
+| `split_by_punct` | 按照标点分割 |
+| **`01_compute_sentence_nll`** | **`计算句子集合中每个句子的平均负对数似然（NLL）（GPU批处理） - 缓存 tokenization，避免重复 - 记录各阶段耗时以供性能分析。`** |
+| `model_name` | 预训练模型的名称或本地路径。脚本会加载该模型计算 NLL。**`更改此参数会导致缓存失效并重新生成。`**  |
+| `batch_size` | 推理时的批大小（一次向 GPU 送入多少个句子）。越大吞吐越高，但受 GPU 显存限制。 |
+| `max_seq_len` | 最大序列长度。句子会被截断或填充到该长度。影响显存和缓存大小。**`更改此参数会导致缓存失效并重新生成。`**  |
+| `gpu_ids` | 使用的 GPU 编号列表。支持多卡（如 `[0,1]`），脚本内部会使用 `DataParallel`。 |
+| `num_workers` | 在 PyTorch 中，`DataLoader` 的 `num_workers` 参数控制数据加载的子进程数量 |
+| `sample_ratio` | 采样比例（0.1 表示使用 10% 数据） |
+| `sample_seed` | 随机种子，保证每次采样一致 |
+| `chunk_size` | 用于 tokenization 分块大小。 |
+| **`02_filter_high_nll`** | **`筛选高NLL句子（带计时和历史记录）完全依赖元数据确定输入文件路径，自动适配采样`** |
+| `threshold_percentile` | 百分位数阈值。筛选 NLL 值大于等于该百分位数的句子。 |
+| `min_sentence_len` | 最短句子长度（按字符数）。长度小于该值的句子会被直接过滤掉，不参与后续阈值筛选。设为 0 或负数表示不过滤短句。 |
+| **`03_compute_word_nll`** | **`对高NLL句子进行词级NLL计算（批处理版本）`** |
+| `model_name` | 所使用的语言模型名称或本地路径。注意步骤01和步骤03可以使用不同模型（例如步骤03可以使用更大的模型来分析高错误句子）。 |
+|`input_csv`  |  步骤02筛选出的高 NLL 句子CSV（例如`high_nll_sentences_sample_20.csv`）。|
+| `output_csv` | 步骤03生成的词级 NLL 详细数据可用于步骤04（例如错误模式分析、可视化或训练纠正模型）。 |
+| `max_seq_len` | 最大序列长度。句子会被截断或填充到该长度（实际 batch 内动态 padding 以最长句子为准，但不超过该值）。 |
+| `batch_size` | 批处理大小（每个 batch 内的句子数）。取决于 GPU 显存。 |
+| `gpu_ids` | 使用的 GPU 编号列表。脚本强制使用第一个 GPU（单卡），因为 DataParallel 对动态 padding 的批处理效率不高。 |
+| **`04_statistics`** | 统计分析，生成报告（支持自动词级聚合） |
+| `top_k_suspicious_words` | 在报告中列出平均 NLL 最高的前 K 个词（同时受 `min_occurrence` 限制）。 |
+| `min_occurrence` | 词至少在语料中出现多少次才被纳入可疑词统计。避免只出现一次的罕见词干扰分析。 |
+| `generate_plots` | 是否生成图表（分布图、Top 词图）。若为 `false`，则只输出 CSV 和文本报告。 |
+| **`05_extract_noise_words`** | 从词级NLL异常词中提取前文词语与异常词的对应关系 |
+| `prev_window` | 提取异常词前面的**前文窗口大小**（取前几个词）。 |
+| `threshold_percentile` | 判断词是否为“异常词”的 NLL 百分位数阈值。例如 `80` 表示选取 NLL 值位于前 20% 的词（即 NLL 大于 80% 分位数的词）。 |
 完整配置模板见 `configs/pipeline_config.yaml`。
+
 
 ## 🏃 运行流水线
 ### 1. 执行完整流程
@@ -239,33 +225,3 @@ ASR_Error_Modeling/
 ----------
 
 **最后更新**：2026‑05‑18
-
-
-
-
-
-
-
-
-
-
-
-# 下一步
-
-<!-- 先清理出来没有英文的数据出来。 -->
-
-<!-- 根据突然升高的nll值，找到前面的词，建立匹配，得到噪音替换的词表，建立针对当前语言模型的噪声添加词表 -->
-
-<!-- 先使用不清洗的数据来做词表，然后再使用清洗后的词表尝试一下。 --> 先处理一下
-
-根据前置词是替换还是插入？还是替换和插入都可以进行？  可以都进行，到时候按照概率进行增强
-## 挑选插入或者替换的词，可以选择向量最相似的进行替换
-
-还有很多名字，以及一些奇怪的词，需要去掉吗？还是先保留做一下效果？名字用正则去掉
-
-一些数字需要去掉吗？删掉
-
-计算异常词出现的频率
-
-可以把不同处理过的数据都保存下来，进行测试
-
