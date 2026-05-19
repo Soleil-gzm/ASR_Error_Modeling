@@ -47,6 +47,8 @@ def compute_nll_from_tensors(model, input_ids, attention_mask, batch_size, devic
     return all_nll, inference_time
 
 def save_chunk_cache(cache_dir, chunk_idx, input_ids, attention_mask, ids):
+    ''' 将一批 tokenization 结果（张量）和对应的原始句子 ID 保存到 .pt 文件，文件名如 chunk_0000.pt。
+        用于分块缓存，避免一次将全部张量加载到内存。 '''
     cache_dir.mkdir(parents=True, exist_ok=True)
     torch.save({
         'input_ids': input_ids.cpu(),
@@ -55,6 +57,19 @@ def save_chunk_cache(cache_dir, chunk_idx, input_ids, attention_mask, ids):
     }, cache_dir / f"chunk_{chunk_idx:04d}.pt")
 
 def load_chunk_cache(cache_dir, chunk_idx):
+    ''' 加载之前保存的缓存分块，返回 (input_ids, attention_mask, ids)，张量在 CPU 上（便于后续拼接）。 
+    
+        为什么张量放在CPU上？
+        A：节省 GPU 显存，先放在 CPU 上（系统内存），拼接成完整张量后，在推理阶段再按 batch 移到 GPU，可以显著降低显存峰值占用。
+           便于拼接操作，CPU 内存通常远大于 GPU 显存，可以容纳整个数据集。若在 GPU 上拼接，会额外产生显存分配和拷贝开销，且容易因显存不足而失败。
+           延迟传输到 GPU 的常见模式，在 PyTorch 数据处理流程中，最佳实践通常是：
+                数据加载和预处理在 CPU 上完成（使用 TensorDataset、DataLoader）。
+                在训练/推理循环中，通过 DataLoader 迭代 batch，再将每个 batch 调用 .to(device) 异步传输到 GPU。
+                这种模式可以隐藏数据传输延迟，并与 GPU 计算流水线并行。
+           缓存复用场景的考虑：
+                缓存的目的之一是在多次运行中重复使用。不同运行可能使用不同的 GPU（如单卡 vs 多卡），甚至不同的设备（CPU fallback）。
+                将缓存数据保存为 CPU 张量是设备无关的，最大程度保持通用性。如果保存为 GPU 张量，加载时必须依赖原来的 GPU 环境，导致无法灵活迁移。
+    '''
     data = torch.load(cache_dir / f"chunk_{chunk_idx:04d}.pt", map_location='cpu')
     return data['input_ids'], data['attention_mask'], data['ids']
 
@@ -81,8 +96,8 @@ def main():
 
     model_name = step_cfg.get('model_name', 'uer/gpt2-chinese-cluecorpussmall')
     batch_size = step_cfg.get('batch_size', 64)
-    max_seq_len = step_cfg.get('max_seq_len', 512)
-    gpu_ids = step_cfg.get('gpu_ids', [6, 7])
+    max_seq_len = step_cfg.get('max_seq_len', 256)
+    gpu_ids = step_cfg.get('gpu_ids', [7])
     chunk_size = step_cfg.get('chunk_size', 50000)
     sample_ratio = step_cfg.get('sample_ratio', 1.0)
     sample_seed = step_cfg.get('sample_seed', 42)
@@ -113,7 +128,7 @@ def main():
         "model_name": model_name,
         "max_seq_len": max_seq_len,
         # 可选：添加 tokenizer 类名以检测 tokenizer 变化
-        # "tokenizer_class": tokenizer.__class__.__name__,
+        "tokenizer_class": tokenizer.__class__.__name__,
     }
 
     # 检查缓存是否有效（参数一致且分块完整）

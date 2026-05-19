@@ -29,7 +29,7 @@ def main():
     raw_data_dir = Path(config['paths']['input']['raw_data_dir'])
     output_csv = Path(step_cfg.get('output_csv', 'intermediate/all_sentences.csv'))
     if not output_csv.is_absolute():
-        output_csv = task_dir / output_csv
+        output_csv = task_dir / output_csv       # 相对路径则与任务目录拼接
     output_csv.parent.mkdir(parents=True, exist_ok=True)
 
     min_sentence_len = step_cfg.get('min_sentence_len', 3)
