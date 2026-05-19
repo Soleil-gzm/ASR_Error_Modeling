@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """
 ASR错误分析流水线主控脚本
-用法: python run_pipeline.py --config pipeline_config.yaml [--step STEP_NAME]
+用法: python scripts/run_pipeline.py --config configs/pipeline_config.yaml [--step STEP_NAME]
 """
 
 import os

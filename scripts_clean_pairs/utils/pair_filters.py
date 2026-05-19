@@ -1,16 +1,25 @@
 # scripts_clean_pairs/pair_filters.py
+''' 词对过滤函数 '''
 import pandas as pd
 import re
 import string
 
+# def is_digit_only(s: str) -> bool:
+#     """判断字符串是否只包含数字（阿拉伯数字或中文大写数字）"""
+#     if not s:
+#         return False
+#     if s.isdigit():     # s.isdigit() 只能识别阿拉伯数字（0-9）以及 Unicode 中的其他数字字符
+#         return True
+#     chinese_digits = set("零一二三四五六七八九十百千万亿")
+#     return all(ch in chinese_digits for ch in s)
+
 def is_digit_only(s: str) -> bool:
-    """判断字符串是否只包含数字（阿拉伯数字或中文大写数字）"""
+    """判断字符串是否只包含数字（阿拉伯数字、Unicode数字、中文数字均可，允许混合）"""
     if not s:
         return False
-    if s.isdigit():
-        return True
-    chinese_digits = set("零一二三四五六七八九十百千万亿")
-    return all(ch in chinese_digits for ch in s)
+    chinese_digits = set("零一二三四五六七八九十百千万亿两萬壹贰叁肆伍陆柒捌玖拾佰仟仨")
+    # 每个字符要么是Unicode数字字符，要么是中文数字字符
+    return all(ch.isdigit() or ch in chinese_digits for ch in s)
 
 def filter_digit_pairs(df: pd.DataFrame, drop_if_both_digit: bool = True) -> pd.DataFrame:
     """过滤掉前后都是纯数字的词对"""

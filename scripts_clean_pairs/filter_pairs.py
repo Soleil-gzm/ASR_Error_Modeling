@@ -10,7 +10,7 @@
    - 异常词后自动附加出现概率（括号内小数），并按概率降序排列
    - 统一日志输出，自动将日志放入 work/{task_name}/logs/
 用法:
-    python filter_pairs.py --input <噪声对文件> --output <输出目录> [选项]
+    python scripts_clean_pairs/filter_pairs.py --input <噪声对文件> --output <输出目录> [选项]
 """
 
 import sys
