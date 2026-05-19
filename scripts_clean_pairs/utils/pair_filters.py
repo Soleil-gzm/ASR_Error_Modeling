@@ -4,15 +4,6 @@ import pandas as pd
 import re
 import string
 
-# def is_digit_only(s: str) -> bool:
-#     """判断字符串是否只包含数字（阿拉伯数字或中文大写数字）"""
-#     if not s:
-#         return False
-#     if s.isdigit():     # s.isdigit() 只能识别阿拉伯数字（0-9）以及 Unicode 中的其他数字字符
-#         return True
-#     chinese_digits = set("零一二三四五六七八九十百千万亿")
-#     return all(ch in chinese_digits for ch in s)
-
 def is_digit_only(s: str) -> bool:
     """判断字符串是否只包含数字（阿拉伯数字、Unicode数字、中文数字均可，允许混合）"""
     if not s:
@@ -30,6 +21,31 @@ def filter_digit_pairs(df: pd.DataFrame, drop_if_both_digit: bool = True) -> pd.
         )
         return df[mask]
     return df
+
+def contains_digit(s: str) -> bool:
+    """
+    判断字符串中是否包含任何数字字符（阿拉伯数字、Unicode数字、中文数字等）
+    """
+    if not isinstance(s, str):
+        return False
+    chinese_digits = set("零一二三四五六七八九十百千万亿两萬壹贰叁肆伍陆柒捌玖拾佰仟仨")
+    for ch in s:
+        if ch.isdigit() or ch in chinese_digits:
+            return True
+    return False
+
+def filter_any_digit_pairs(df: pd.DataFrame, filter_prev: bool = True, filter_abnormal: bool = True) -> pd.DataFrame:
+    """
+    删除包含数字的词对（默认前置词或异常词中任一含有数字即删除）
+    filter_prev: 是否检查前置词
+    filter_abnormal: 是否检查异常词
+    """
+    mask = pd.Series(True, index=df.index)
+    if filter_prev:
+        mask &= ~df['prev_word'].astype(str).apply(contains_digit)
+    if filter_abnormal:
+        mask &= ~df['abnormal_word'].astype(str).apply(contains_digit)
+    return df[mask].reset_index(drop=True)
 
 def filter_by_min_count(df: pd.DataFrame, min_count: int) -> pd.DataFrame:
     """过滤低频词对（基于 (prev_word, abnormal_word) 组合的出现次数）"""

@@ -29,7 +29,8 @@ from utils.pair_filters import (
     remove_english_letters,
     filter_name_honorific_pairs,
     filter_garbled_pairs,
-    filter_punctuation_pairs
+    filter_punctuation_pairs,
+    filter_any_digit_pairs
 )
 
 def get_task_dir_from_input(input_path: Path, base_dir_name: str = "work") -> Path:
@@ -44,13 +45,13 @@ def get_task_dir_from_input(input_path: Path, base_dir_name: str = "work") -> Pa
 
 def main():
     # ================== 可修改的硬编码默认值 ==================
-    ''' Qwen '''
-    DEFAULT_INPUT = "work/test_Qwen_pt/outputs/sample_20_analysis/prev_window_1/noise_pairs.csv"
-    DEFAULT_OUTPUT = "work/test_Qwen_pt/outputs/sample_20_analysis/prev_clean"
+    # ''' Qwen '''
+    # DEFAULT_INPUT = "work/test_Qwen_pt/outputs/sample_20_analysis/prev_window_1/noise_pairs.csv"
+    # DEFAULT_OUTPUT = "work/test_Qwen_pt/outputs/sample_20_analysis/prev_clean"
 
-    # ''' gpt2 '''
-    # DEFAULT_INPUT = "work/test_gpt2_sample_10_pt/outputs/sample_20_analysis/prev_window_1/noise_pairs.csv"
-    # DEFAULT_OUTPUT = "work/test_gpt2_sample_10_pt/outputs/sample_20_analysis/prev_clean"
+    ''' gpt2 '''
+    DEFAULT_INPUT = "work/test_gpt2_sample_10_pt/outputs/sample_20_analysis/prev_window_1/noise_pairs.csv"
+    DEFAULT_OUTPUT = "work/test_gpt2_sample_10_pt/outputs/sample_20_analysis/prev_clean/prev_clean_prev_window_1"
 
     DEFAULT_MIN_COUNT = 2
     DEFAULT_MIN_UNIQUE_ABNORMAL = 2
@@ -121,6 +122,13 @@ def main():
         logger.info(f"数字对过滤后剩余 {len(df)} 条 (移除 {before - len(df)})")
     else:
         logger.info("跳过数字对过滤")
+
+    # 2. 所有数字对过滤
+    if args.drop_digit_pairs:   # 或者其他控制开关
+        before = len(df)
+        df = filter_any_digit_pairs(df)   # 你的新函数
+        after = len(df)
+        logger.info(f"删除含数字的词对后剩余 {after} 条 (移除 {before - after})")
 
     # 2. 删除英文字母
     if args.remove_english:

@@ -24,6 +24,7 @@ from scripts.utils.metadata import get_step_output, get_step_sample_ratio
 
 # ---------- 数据集与collate函数 ----------
 class WordNLLDataset(Dataset):
+    ''' 包装句子列表和对应的 ID，供 DataLoader 使用。每个样本是 (sentence, id)。 '''
     def __init__(self, sentences, ids):
         self.sentences = sentences
         self.ids = ids
@@ -33,12 +34,14 @@ class WordNLLDataset(Dataset):
         return self.sentences[idx], self.ids[idx]
 
 def collate_word_nll(batch, tokenizer, max_length):
+    ''' 将一个 batch 的句子进行动态 padding 和 tokenization。由于每个句子长度不同，
+        通过 padding=True 填充到本 batch 中最长长度（不超过 max_length），返回统一的张量。 '''
     sentences, ids = zip(*batch)
     enc = tokenizer(
         list(sentences),
         truncation=True,
         max_length=max_length,
-        padding=True,
+        padding=True,  
         return_tensors='pt'
     )
     return enc['input_ids'], enc['attention_mask'], sentences, ids

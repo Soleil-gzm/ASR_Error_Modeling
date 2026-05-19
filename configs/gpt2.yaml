@@ -49,7 +49,7 @@ steps:
     gpu_ids: [7]          # 只使用一张卡
 
   04_statistics:
-    enabled: true
+    enabled: false
     script: "scripts/04_statistics.py"
     input_word_csv: "outputs/word_nll_details.csv"
     input_sentence_csv: "intermediate/sentence_nll.csv"
@@ -62,5 +62,5 @@ steps:
   05_extract_noise_words:
     enabled: true
     script: "scripts/05_extract_noise_words.py"
-    prev_window: 1
+    prev_window: 3
     threshold_percentile: 80

@@ -15,7 +15,7 @@ steps:
     output_csv: "intermediate/all_sentences.csv"   # 相对task_dir
     min_sentence_len: 3                   # 过滤过短句子
     remove_speaker_prefix: true           # 去掉行首“说话人X:”
-    split_by_punct: false
+    split_by_punct: false                 # 按照标点分割
 
   01_compute_sentence_nll:
     enabled: true
@@ -52,7 +52,6 @@ steps:
     use_gpu: true
     gpu_ids: [6, 7]
 
-steps:
   04_statistics:
     enabled: true
     script: "scripts/04_statistics.py"
